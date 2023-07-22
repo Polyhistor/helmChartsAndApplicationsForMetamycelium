@@ -6,7 +6,7 @@ app = FastAPI()
 
 # Configure your Kafka producer
 # replace with your Kafka bootstrap servers
-conf = {'bootstrap.servers': '127.0.0.1:9092/kafka'}
+conf = {'bootstrap.servers': 'localhost/kafka'}
 producer = Producer(conf)
 
 # Load your CSV data

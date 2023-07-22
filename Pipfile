@@ -4,12 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-fastapi = "*"
-pandas = "*"
-numpy = "*"
 uvicorn = "*"
-confluent-kafka = "*"
-requests = "*"
 
 [dev-packages]
 
