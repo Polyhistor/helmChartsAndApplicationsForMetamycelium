@@ -17,6 +17,12 @@ merged_df = pd.merge(df1, df2, on='date')
 def main():
     return "Operational App"
 
+@app.get('/getClusterId')
+async def get_cluster_id(): 
+    response = requests.get("http://localhost/kafka-rest-proxy/v3/clusters")
+    serializedData = response.json()
+    print(serializedData)
+
 
 @app.post('/produce')
 async def produce_to_kafka(topic: str = 'test'):

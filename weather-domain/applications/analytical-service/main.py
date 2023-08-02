@@ -30,6 +30,7 @@ async def startup_event():
             raise Exception("Failed to create Kafka consumer: " + str(e))
     else:
         print("Kafka consumer created successfully")
+        print(response.json())
         consumer_info = response.json()
         print("Consumer instance URI: " + consumer_info['base_uri'])
         global consumer_base_url
@@ -74,3 +75,7 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
 
     background_tasks.add_task(consume_records)
     return {"status": "Consuming records in the background"}
+
+
+
+
