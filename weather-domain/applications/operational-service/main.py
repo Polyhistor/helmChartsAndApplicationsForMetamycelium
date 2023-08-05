@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 from minio import Minio
 from io import BytesIO
+import json
 
 app = FastAPI()
 
@@ -54,10 +55,27 @@ async def get_cluster_id():
 @app.get('/store-operational-data')
 async def produce_to_kafka(topic: str = 'domain-weather-operational-data'):
     # Kafka REST Proxy URL for producing messages to a topic
-    url = f"{base_url}/clusters/{cluster_id}/topics/" + topic
+    url = f"{base_url}/topics/" + topic
     headers = {
         'Content-Type': 'application/vnd.kafka.json.v2+json',
     }
+
+    # Dispatch the "Data loading started" event
+    payload_start = {
+        "records": [
+            {
+                "value": {
+                    "message": "Data loading started"
+                }
+            }
+        ]
+    }
+
+    print(url)
+    response = requests.post(url, headers=headers, data=json.dumps(payload_start))
+
+    if response.status_code != 200:
+        return {"error": response.text}
 
     # Store the merged data in Minio
     csv_data = merged_df.to_csv(index=False).encode('utf-8')
@@ -69,7 +87,6 @@ async def produce_to_kafka(topic: str = 'domain-weather-operational-data'):
     else: 
         print("bucket already exist")
 
-
     minio_client.put_object(
         bucket_name='weather-domain-operational-data',
         object_name='merged_data.csv',
@@ -78,21 +95,7 @@ async def produce_to_kafka(topic: str = 'domain-weather-operational-data'):
         content_type='text/csv',
     )
 
-    # Dispatch the events
-    payload_start = {
-        "records": [
-            {
-                "value": {
-                    "message": "Data loading started"
-                }
-            }
-        ]
-    }
-
-    response = requests.post(url, headers=headers, data=json.dumps(payload_start))
-    if response.status_code != 200:
-        return {"error": response.text}
-
+    # Dispatch the "Data loading finished" event
     payload_end = {
         "records": [
             {
@@ -102,7 +105,7 @@ async def produce_to_kafka(topic: str = 'domain-weather-operational-data'):
             }
         ]
     }
-    
+
     response = requests.post(url, headers=headers, data=json.dumps(payload_end))
     if response.status_code != 200:
         return {"error": response.text}
