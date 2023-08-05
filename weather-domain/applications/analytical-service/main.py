@@ -9,17 +9,18 @@ consumer_base_url = None
 
 @app.on_event("startup")
 async def startup_event():
-    url = "http://localhost/kafka-rest-proxy/consumers/testgroup/"
+    url = "http://localhost/kafka-rest-proxy/consumers/weather-domain-operational-data-consumer/"
     headers = {
         'Content-Type': 'application/vnd.kafka.v2+json',
     }
     data = {
-        "name": "my_consumer",
+        "name": "operational-data-consumer",
         "format": "binary",
         "auto.offset.reset": "earliest",
         "auto.commit.enable": "false"
     }
     try:
+        # attemping to create a consumer 
         response = requests.post(url, headers=headers, data=json.dumps(data))
         # will raise an HTTPError if the status code is 4xx or 5xx
         response.raise_for_status()
@@ -40,7 +41,7 @@ async def startup_event():
         # Subscribe the consumer to the topic
         url = consumer_base_url + "/subscription"
         headers = {'Content-Type': 'application/vnd.kafka.v2+json'}
-        data = {"topics": ["test"]}  # Adjusted the topic name here
+        data = {"topics": ["domain-weather-operational-data"]}  # Adjusted the topic name here
         response = requests.post(url, headers=headers, data=json.dumps(data))
         if response.status_code != 204:
             raise Exception(
@@ -54,7 +55,7 @@ async def shutdown_event():
     print(f"Consumer deleted with status code {response.status_code}")
 
 
-@app.get("/consume")
+@app.get("/subscribe-to-operational-data")
 async def consume_kafka_message(background_tasks: BackgroundTasks):
     if consumer_base_url is None:
         return {"status": "Consumer has not been initialized. Please try again later."}
@@ -70,6 +71,7 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
         else:
             records = response.json()
             for record in records:
+                print(record)
                 print(
                     f"Consumed record with key {record['key']} and value {record['value']} from topic {record['topic']}")
 

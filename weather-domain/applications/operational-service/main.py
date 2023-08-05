@@ -89,7 +89,7 @@ async def produce_to_kafka(topic: str = 'domain-weather-operational-data'):
 
     minio_client.put_object(
         bucket_name='weather-domain-operational-data',
-        object_name='merged_data.csv',
+        object_name='merged_data-v2.csv',
         data=csv_bytes,
         length=len(csv_data),
         content_type='text/csv',
