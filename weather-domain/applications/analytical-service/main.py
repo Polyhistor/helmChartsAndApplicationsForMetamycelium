@@ -1,4 +1,5 @@
 from fastapi import FastAPI, BackgroundTasks
+from minio import Minio
 import requests
 import json
 import base64
@@ -6,6 +7,19 @@ import base64
 app = FastAPI()
 
 consumer_base_url = None
+# Storage info dictionary
+storage_info = {}
+minio_url = "localhost:9001"
+minio_acces_key = "minioadmin"
+minio_secret_key = "minioadmin"
+
+# Initialize the Minio client
+minio_client = Minio(
+    minio_url,
+    access_key=minio_acces_key,
+    secret_key=minio_secret_key,
+    secure=False
+)
 
 
 @app.on_event("startup")
@@ -56,10 +70,6 @@ async def shutdown_event():
     print(f"Consumer deleted with status code {response.status_code}")
 
 
-
-import base64
-import json
-
 @app.get("/subscribe-to-operational-data")
 async def consume_kafka_message(background_tasks: BackgroundTasks):
     if consumer_base_url is None:
@@ -69,17 +79,6 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
     url = consumer_base_url + "/records"
     headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
 
-    def decode_base64(data):
-        """Decodes base64, padding being optional.
-
-        :param data: Base64 data as an ASCII byte string
-        :returns: The decoded byte string.
-        """
-        missing_padding = len(data) % 4
-        if missing_padding != 0:
-            data += '=' * (4 - missing_padding)
-        return base64.b64decode(data)
-
     def consume_records():
         response = requests.get(url, headers=headers)
         if response.status_code != 200:
@@ -87,25 +86,58 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
         else:
             records = response.json()
             for record in records:
-                decoded_key = None
-                # Decoding the base64 message for the key
-                if record['key']:
-                    base64_key = record['key']
-                    decoded_key = decode_base64(base64_key).decode('utf-8')
+                print(record)
+                decoded_key = base64.b64decode(record['key']).decode('utf-8') if record['key'] else None
+                decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
+                value_obj = json.loads(decoded_value_json)
+                global storage_info
 
-                # Decoding the base64 message for the value
-                base64_value = record['value']
-                decoded_value = decode_base64(base64_value).decode('utf-8')
+                storage_info = {
+                "distributedStorageAddress": value_obj.get('distributedStorageAddress', ''),
+                "minio_access_key": value_obj.get('minio_access_key', ''),
+                "minio_secret_key": value_obj.get('minio_secret_key', ''),
+                "bucket_name": value_obj.get('bucket_name', ''),
+                "object_name": value_obj.get('object_name', '')
+                }
 
-                value_obj = json.loads(decoded_value)
 
-                print(
-                    f"Consumed record with key {decoded_key} and value {value_obj['message']} from topic {record['topic']}")
+                print(f"Consumed record with key {decoded_key} and value {value_obj['message']} from topic {record['topic']}")
+                if 'distributedStorageAddress' in value_obj:
+                    print(f"Distributed storage address: {value_obj['distributedStorageAddress']}")
+                    print(f"Minio access key: {value_obj['minio_access_key']}")
+                    print(f"Minio secret key: {value_obj['minio_secret_key']}")
+                    print(f"Bucket name: {value_obj['bucket_name']}")
+                    print(f"Object name: {value_obj['object_name']}")
+
+
 
     background_tasks.add_task(consume_records)
     return {"status": "Consuming records in the background"}
 
 
+def fetch_data_from_minio():
+    minio_client = Minio(
+        storage_info["distributedStorageAddress"],
+        access_key=storage_info["minio_access_key"],
+        secret_key=storage_info["minio_secret_key"],
+        secure=False
+    )
+    data = minio_client.get_object(storage_info["bucket_name"], storage_info["object_name"])
+    data_str = ''
+    for d in data.stream(32*1024):
+        data_str += d.decode()
+    return data_str
+
+@app.get("/retrieve_data")
+async def retrieve_data():
+    if not storage_info:
+        raise HTTPException(status_code=404, detail="Storage info not found")
+
+    try:
+        data = fetch_data_from_minio()
+        return {"data": data}
+    except ResponseError as err:
+        raise HTTPException(status_code=500, detail=f"An error occurred while fetching the data: {err}")
 
 
 

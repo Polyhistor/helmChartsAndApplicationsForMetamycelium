@@ -10,6 +10,7 @@ numpy = "*"
 uvicorn = "*"
 confluent-kafka = "*"
 requests = "*"
+minio = "*"
 
 [dev-packages]
 
