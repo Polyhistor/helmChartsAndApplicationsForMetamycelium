@@ -45,7 +45,7 @@ def main():
     return "Operational App"
 
 
-@app.get('/getClusterId')
+@app.get('/get-cluster-id')
 async def get_cluster_id(): 
     global cluster_id
     response = requests.get(f"{kafka_rest_proxy_base_url}/v3/clusters")
