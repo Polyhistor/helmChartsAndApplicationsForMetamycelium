@@ -128,14 +128,27 @@ def fetch_data_from_minio():
         data_str += d.decode()
     return data_str
 
-@app.get("/retrieve_data")
-async def retrieve_data():
+def fetch_data_from_minio_and_save():
+    minio_client = Minio(
+        storage_info["distributedStorageAddress"],
+        access_key=storage_info["minio_access_key"],
+        secret_key=storage_info["minio_secret_key"],
+        secure=False
+    )
+    data = minio_client.get_object(storage_info["bucket_name"], storage_info["object_name"])
+    
+    with open('local_data.csv', 'wb') as file_data:
+        for d in data.stream(32*1024):
+            file_data.write(d)
+
+@app.get("/retrieve_and_save_data")
+async def retrieve_and_save_data():
     if not storage_info:
         raise HTTPException(status_code=404, detail="Storage info not found")
 
     try:
-        data = fetch_data_from_minio()
-        return {"data": data}
+        fetch_data_from_minio_and_save()
+        return {"status": "Data successfully retrieved and saved to 'local_data.csv'"}
     except ResponseError as err:
         raise HTTPException(status_code=500, detail=f"An error occurred while fetching the data: {err}")
 
