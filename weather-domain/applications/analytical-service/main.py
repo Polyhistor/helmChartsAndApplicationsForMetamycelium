@@ -1,6 +1,7 @@
 from fastapi import FastAPI, BackgroundTasks
 import requests
 import json
+import base64
 
 app = FastAPI()
 
@@ -55,6 +56,10 @@ async def shutdown_event():
     print(f"Consumer deleted with status code {response.status_code}")
 
 
+
+import base64
+import json
+
 @app.get("/subscribe-to-operational-data")
 async def consume_kafka_message(background_tasks: BackgroundTasks):
     if consumer_base_url is None:
@@ -64,6 +69,17 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
     url = consumer_base_url + "/records"
     headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
 
+    def decode_base64(data):
+        """Decodes base64, padding being optional.
+
+        :param data: Base64 data as an ASCII byte string
+        :returns: The decoded byte string.
+        """
+        missing_padding = len(data) % 4
+        if missing_padding != 0:
+            data += '=' * (4 - missing_padding)
+        return base64.b64decode(data)
+
     def consume_records():
         response = requests.get(url, headers=headers)
         if response.status_code != 200:
@@ -71,12 +87,25 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
         else:
             records = response.json()
             for record in records:
-                print(record)
+                decoded_key = None
+                # Decoding the base64 message for the key
+                if record['key']:
+                    base64_key = record['key']
+                    decoded_key = decode_base64(base64_key).decode('utf-8')
+
+                # Decoding the base64 message for the value
+                base64_value = record['value']
+                decoded_value = decode_base64(base64_value).decode('utf-8')
+
+                value_obj = json.loads(decoded_value)
+
                 print(
-                    f"Consumed record with key {record['key']} and value {record['value']} from topic {record['topic']}")
+                    f"Consumed record with key {decoded_key} and value {value_obj['message']} from topic {record['topic']}")
 
     background_tasks.add_task(consume_records)
     return {"status": "Consuming records in the background"}
+
+
 
 
 

@@ -4,6 +4,7 @@ import requests
 from minio import Minio
 from io import BytesIO
 import json
+import base64
 
 app = FastAPI()
 
@@ -14,13 +15,16 @@ df2 = pd.read_csv('precipitation.csv')
 # Merge the dataframes on the 'date' column
 merged_df = pd.merge(df1, df2, on='date')
 cluster_id = None 
-base_url = "http://localhost/kafka-rest-proxy"
+kafka_rest_proxy_base_url = "http://localhost/kafka-rest-proxy"
+minio_url = "localhost:9001"
+minio_acces_key = "minioadmin"
+minio_secret_key = "minioadmin"
 
 # Initialize the Minio client
 minio_client = Minio(
-    "localhost:9001",
-    access_key="minioadmin",
-    secret_key="minioadmin",
+    minio_url,
+    access_key=minio_acces_key,
+    secret_key=minio_secret_key,
     secure=False
 )
 
@@ -28,7 +32,7 @@ minio_client = Minio(
 @app.on_event('startup')
 async def startup_event():
     global cluster_id
-    response = requests.get(f"{base_url}/v3/clusters")
+    response = requests.get(f"{kafka_rest_proxy_base_url}/v3/clusters")
     serializedData = response.json()
     # set the global cluster id
     cluster_id = serializedData["data"][0]["cluster_id"]
@@ -44,7 +48,7 @@ def main():
 @app.get('/getClusterId')
 async def get_cluster_id(): 
     global cluster_id
-    response = requests.get(f"{base_url}/v3/clusters")
+    response = requests.get(f"{kafka_rest_proxy_base_url}/v3/clusters")
     serializedData = response.json()
     # set the global cluster id
     cluster_id = serializedData["data"][0]["cluster_id"]
@@ -55,7 +59,7 @@ async def get_cluster_id():
 @app.get('/store-operational-data')
 async def produce_to_kafka(topic: str = 'domain-weather-operational-data'):
     # Kafka REST Proxy URL for producing messages to a topic
-    url = f"{base_url}/topics/" + topic
+    url = f"{kafka_rest_proxy_base_url}/topics/" + topic
     headers = {
         'Content-Type': 'application/vnd.kafka.json.v2+json',
     }
@@ -64,6 +68,7 @@ async def produce_to_kafka(topic: str = 'domain-weather-operational-data'):
     payload_start = {
         "records": [
             {
+                "key" : "weather-domain-operational-data-stored",
                 "value": {
                     "message": "Data loading started"
                 }
@@ -80,16 +85,18 @@ async def produce_to_kafka(topic: str = 'domain-weather-operational-data'):
     # Store the merged data in Minio
     csv_data = merged_df.to_csv(index=False).encode('utf-8')
     csv_bytes = BytesIO(csv_data)
+    min_io_bucket_name = "weather-domain-operational-data"
+    min_io_object_name = "merged_data-v2.1.csv"
 
-    bucketExists = minio_client.bucket_exists("weather-domain-operational-data")
+    bucketExists = minio_client.bucket_exists(min_io_bucket_name)
     if not bucketExists:
-        minio_client.make_bucket("weather-domain-operational-data")
+        minio_client.make_bucket(min_io_bucket_name)
     else: 
         print("bucket already exist")
 
     minio_client.put_object(
-        bucket_name='weather-domain-operational-data',
-        object_name='merged_data-v2.csv',
+        bucket_name=min_io_bucket_name,
+        object_name=min_io_object_name,
         data=csv_bytes,
         length=len(csv_data),
         content_type='text/csv',
@@ -98,9 +105,15 @@ async def produce_to_kafka(topic: str = 'domain-weather-operational-data'):
     # Dispatch the "Data loading finished" event
     payload_end = {
         "records": [
-            {
+            {   
+                "key" : "weather-domain-operational-data-stored",
                 "value": {
-                    "message": "Data loading finished"
+                    "message": "Data loading finished",
+                     "distributedStorageAddress" : minio_url,
+                     "minio_access_key": minio_acces_key,
+                     "minio_secret_key" : minio_secret_key,
+                     "bucket_name": min_io_bucket_name,
+                     "object_name" : min_io_object_name
                 }
             }
         ]
