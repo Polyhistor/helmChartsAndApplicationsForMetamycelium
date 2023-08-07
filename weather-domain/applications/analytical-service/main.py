@@ -1,8 +1,14 @@
+from http.client import HTTPException
+from xmlrpc.client import ResponseError
 from fastapi import FastAPI, BackgroundTasks
 from minio import Minio
 import requests
 import json
 import base64
+import sqlite3
+from sqlite3 import Error
+from io import StringIO
+import csv
 
 app = FastAPI()
 
@@ -119,7 +125,8 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
     return {"status": "Consuming records in the background"}
 
 
-def fetch_data_from_minio():
+
+def fetch_data_from_minio_and_save():
     minio_client = Minio(
         storage_info["distributedStorageAddress"],
         access_key=storage_info["minio_access_key"],
@@ -130,20 +137,24 @@ def fetch_data_from_minio():
     data_str = ''
     for d in data.stream(32*1024):
         data_str += d.decode()
-    return data_str
-
-def fetch_data_from_minio_and_save():
-    minio_client = Minio(
-        storage_info["distributedStorageAddress"],
-        access_key=storage_info["minio_access_key"],
-        secret_key=storage_info["minio_secret_key"],
-        secure=False
-    )
-    data = minio_client.get_object(storage_info["bucket_name"], storage_info["object_name"])
     
-    with open('weather-domain-analytica-data.csv', 'wb') as file_data:
-        for d in data.stream(32*1024):
-            file_data.write(d)
+    conn = sqlite3.connect('weather_data.db')  # Create a database connection
+    cursor = conn.cursor()  # Get a cursor object
+
+    # Creating a table - assuming the CSV data contains a header
+    data_file = StringIO(data_str)
+    reader = csv.reader(data_file)
+    header = next(reader)  # Get the header row
+    columns = ', '.join([f'{col} TEXT' for col in header])  # Define columns for the SQLite table
+    cursor.execute(f"CREATE TABLE IF NOT EXISTS weather_data ({columns})")
+
+    # Inserting the CSV data into the table
+    for row in reader:
+        cursor.execute(f"INSERT INTO weather_data VALUES ({', '.join(['?' for _ in row])})", row)
+
+    conn.commit()  # Commit the transaction
+    conn.close()  # Close the connection
+
 
 @app.get("/retrieve_and_save_data")
 async def retrieve_and_save_data():
