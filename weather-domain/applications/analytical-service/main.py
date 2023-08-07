@@ -163,7 +163,7 @@ async def retrieve_and_save_data():
 
     try:
         fetch_data_from_minio_and_save()
-        return {"status": "Data successfully retrieved and saved to 'local_data.csv'"}
+        return {"status": "Data successfully retrieved and saved to 'weather_data.db'"}
     except ResponseError as err:
         raise HTTPException(status_code=500, detail=f"An error occurred while fetching the data: {err}")
 
