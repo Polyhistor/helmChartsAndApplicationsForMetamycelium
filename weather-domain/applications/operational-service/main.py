@@ -55,6 +55,9 @@ async def get_cluster_id():
     # return the value to the agent
     return cluster_id
 
+@app.get("/")
+async def main_function(): 
+    return "welcome to the weather domain operational service"
 
 @app.get('/store-operational-data')
 async def produce_to_kafka(topic: str = 'domain-weather-operational-data'):

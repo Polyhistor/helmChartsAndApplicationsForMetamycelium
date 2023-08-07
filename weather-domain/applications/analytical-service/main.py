@@ -70,6 +70,10 @@ async def shutdown_event():
     print(f"Consumer deleted with status code {response.status_code}")
 
 
+@app.get("/")
+async def main_function(): 
+    return "welcome to the weather domain analytical service"
+
 @app.get("/subscribe-to-operational-data")
 async def consume_kafka_message(background_tasks: BackgroundTasks):
     if consumer_base_url is None:
@@ -137,7 +141,7 @@ def fetch_data_from_minio_and_save():
     )
     data = minio_client.get_object(storage_info["bucket_name"], storage_info["object_name"])
     
-    with open('local_data.csv', 'wb') as file_data:
+    with open('weather-domain-analytica-data.csv', 'wb') as file_data:
         for d in data.stream(32*1024):
             file_data.write(d)
 
