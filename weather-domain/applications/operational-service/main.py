@@ -5,8 +5,11 @@ from minio import Minio
 from io import BytesIO
 import json
 import base64
+import time 
 
 app = FastAPI()
+
+
 
 # Load your CSV data
 df1 = pd.read_csv('temperature.csv')

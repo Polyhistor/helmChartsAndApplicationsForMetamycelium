@@ -12,6 +12,8 @@ import csv
 
 app = FastAPI()
 
+SERVICE_ADDRESS = "http://localhost:8000"
+
 consumer_base_url = None
 # Storage info dictionary
 storage_info = {}
@@ -127,6 +129,54 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
 
 
 def fetch_data_from_minio_and_save():
+    start_time = time.time()  # To calculate processing time
+
+    # Fetch data
+    minio_client = Minio(
+        storage_info["distributedStorageAddress"],
+        access_key=storage_info["minio_access_key"],
+        secret_key=storage_info["minio_secret_key"],
+        secure=False
+    )
+    data = minio_client.get_object(storage_info["bucket_name"], storage_info["object_name"])
+    data_str = ''
+    for d in data.stream(32*1024):
+        data_str += d.decode()
+
+    # Store data in SQLite
+    conn = sqlite3.connect('weather_data.db')
+    cursor = conn.cursor()
+
+    data_file = StringIO(data_str)
+    reader = csv.reader(data_file)
+    header = next(reader)
+    columns = ', '.join([f'{col} TEXT' for col in header])
+    cursor.execute(f"CREATE TABLE IF NOT EXISTS weather_data ({columns})")
+
+    for row in reader:
+        cursor.execute(f"INSERT INTO weather_data VALUES ({', '.join(['?' for _ in row])})", row)
+
+    conn.commit()
+    conn.close()
+
+    processing_time = time.time() - start_time
+
+    # Creating metadata
+    metadata = {
+        "serviceAddress": SERVICE_ADDRESS,
+        "completeness": 1.0,  # For the demonstration, assuming data is always complete. Modify as needed.
+        "validity": 1.0,     # Similarly, assuming full validity. Modify as needed.
+        "accuracy": 1.0,     # Similarly, assuming full accuracy. Modify as needed.
+        "processingTime": processing_time,
+        "actualTime": time.time()
+    }
+
+    # Send metadata to Data Lichen
+    response = requests.post('http://data-lichen-address/register', json=metadata)
+    if response.status_code == 200:
+        print(response.json()['message'])
+    else:
+        print("Failed to register metadata with Data Lichen.")
     minio_client = Minio(
         storage_info["distributedStorageAddress"],
         access_key=storage_info["minio_access_key"],
