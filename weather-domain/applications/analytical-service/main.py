@@ -91,6 +91,22 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
     url = consumer_base_url + "/records"
     headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
 
+    def insert_into_db(storage_info):
+        conn = sqlite3.connect('app_data.db')
+        cursor = conn.cursor()
+        cursor.execute("""
+        INSERT INTO storage_info (distributedStorageAddress, minio_access_key, minio_secret_key, bucket_name, object_name)
+        VALUES (?, ?, ?, ?, ?)
+        """, (
+            storage_info["distributedStorageAddress"],
+            storage_info["minio_access_key"],
+            storage_info["minio_secret_key"],
+            storage_info["bucket_name"],
+            storage_info["object_name"]
+        ))
+        conn.commit()
+        conn.close()
+
     def consume_records():
         response = requests.get(url, headers=headers)
         if response.status_code != 200:
@@ -112,6 +128,8 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
                 "object_name": value_obj.get('object_name', '')
                 }
 
+                # Insert the storage info into the SQLite database
+                insert_into_db(storage_info)
 
                 print(f"Consumed record with key {decoded_key} and value {value_obj['message']} from topic {record['topic']}")
                 if 'distributedStorageAddress' in value_obj:
@@ -121,10 +139,9 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
                     print(f"Bucket name: {value_obj['bucket_name']}")
                     print(f"Object name: {value_obj['object_name']}")
 
-
-
     background_tasks.add_task(consume_records)
     return {"status": "Consuming records in the background"}
+
 
 
 
@@ -172,7 +189,7 @@ def fetch_data_from_minio_and_save():
     }
 
     # Send metadata to Data Lichen
-    response = requests.post('http://data-lichen-address/register', json=metadata)
+    response = requests.post('http://localhost:3000/register', json=metadata)
     if response.status_code == 200:
         print(response.json()['message'])
     else:
@@ -209,7 +226,7 @@ def fetch_data_from_minio_and_save():
 @app.get("/retrieve_and_save_data")
 async def retrieve_and_save_data():
     if not storage_info:
-        raise HTTPException(status_code=404, detail="Storage info not found")
+        raise HTTPException(404, "Storage info not found")
 
     try:
         fetch_data_from_minio_and_save()
