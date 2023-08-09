@@ -92,7 +92,7 @@ async def produce_to_kafka(topic: str = 'domain-weather-operational-data'):
     csv_data = merged_df.to_csv(index=False).encode('utf-8')
     csv_bytes = BytesIO(csv_data)
     min_io_bucket_name = "weather-domain-operational-data"
-    min_io_object_name = "merged_data-v2.4.csv"
+    min_io_object_name = "merged_data-v2.5.csv"
 
     bucketExists = minio_client.bucket_exists(min_io_bucket_name)
     if not bucketExists:

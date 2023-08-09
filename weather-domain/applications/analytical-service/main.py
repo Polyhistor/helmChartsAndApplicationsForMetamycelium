@@ -10,7 +10,7 @@ from sqlite3 import Error
 from io import StringIO
 import csv
 import time 
-from utilities import ensure_table_exists, consume_records
+from utilities import ensure_table_exists, insert_into_db
 
 app = FastAPI()
 
@@ -95,10 +95,41 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
 
     ensure_table_exists.ensure_table_exists()
 
-    background_tasks.add_task(consume_records.consume_records(url, headers))
+    def consume_records():
+        global storage_info
+        
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            raise Exception(f"GET /records/ did not succeed: {response.text}")
+        else:
+            records = response.json()
+            for record in records:
+                decoded_key = base64.b64decode(record['key']).decode('utf-8') if record['key'] else None
+                decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
+                value_obj = json.loads(decoded_value_json)
+
+                storage_info = {
+                "distributedStorageAddress": value_obj.get('distributedStorageAddress', ''),
+                "minio_access_key": value_obj.get('minio_access_key', ''),
+                "minio_secret_key": value_obj.get('minio_secret_key', ''),
+                "bucket_name": value_obj.get('bucket_name', ''),
+                "object_name": value_obj.get('object_name', '')
+                }
+
+                # Insert the storage info into the SQLite database
+                insert_into_db.insert_into_db(storage_info)
+
+                print(f"Consumed record with key {decoded_key} and value {value_obj['message']} from topic {record['topic']}")
+                if 'distributedStorageAddress' in value_obj:
+                    print(f"Distributed storage address: {value_obj['distributedStorageAddress']}")
+                    print(f"Minio access key: {value_obj['minio_access_key']}")
+                    print(f"Minio secret key: {value_obj['minio_secret_key']}")
+                    print(f"Bucket name: {value_obj['bucket_name']}")
+                    print(f"Object name: {value_obj['object_name']}")
+
+
+    background_tasks.add_task(consume_records)
     return {"status": "Consuming records in the background"}
-
-
 
 
 def fetch_data_from_minio_and_save():
@@ -181,6 +212,9 @@ def fetch_data_from_minio_and_save():
 
 @app.get("/retrieve_and_save_data")
 async def retrieve_and_save_data():
+    global storage_info
+    print(storage_info)
+
     if not storage_info:
         raise HTTPException(404, "Storage info not found")
 

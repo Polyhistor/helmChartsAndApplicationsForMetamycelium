@@ -3,7 +3,8 @@ import json
 import base64
 from utilities import insert_into_db
 
-def consume_records(url, headers):
+def consume_records(url, headers, storage_info={}):
+
     response = requests.get(url, headers=headers)
     if response.status_code != 200:
         raise Exception(f"GET /records/ did not succeed: {response.text}")
@@ -14,7 +15,6 @@ def consume_records(url, headers):
             decoded_key = base64.b64decode(record['key']).decode('utf-8') if record['key'] else None
             decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
             value_obj = json.loads(decoded_value_json)
-            global storage_info
 
             storage_info = {
             "distributedStorageAddress": value_obj.get('distributedStorageAddress', ''),
@@ -34,3 +34,4 @@ def consume_records(url, headers):
                 print(f"Minio secret key: {value_obj['minio_secret_key']}")
                 print(f"Bucket name: {value_obj['bucket_name']}")
                 print(f"Object name: {value_obj['object_name']}")
+
