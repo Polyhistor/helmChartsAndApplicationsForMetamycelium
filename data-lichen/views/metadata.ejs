@@ -6,10 +6,11 @@
 
 </head>
 <body>
-    <h1>Data Lichen</h1>
-    <table>
+    <h1>Metadata Information</h1>
+    <table border="1">
         <thead>
             <tr>
+                <th>Unique Identifier</th>
                 <th>Service Name</th>
                 <th>Service Address</th>
                 <th>Completeness</th>
@@ -17,11 +18,13 @@
                 <th>Accuracy</th>
                 <th>Processing Time</th>
                 <th>Actual Time</th>
+                <th>Processing Duration</th> <!-- New column -->
             </tr>
         </thead>
         <tbody>
-            <% for(let item of metadata) { %>
+            <% metadata.forEach(item => { %>
                 <tr>
+                    <td><%= item.uniqueIdentifier %></td>
                     <td><%= item.serviceName %></td>
                     <td><%= item.serviceAddress %></td>
                     <td><%= item.completeness %></td>
@@ -29,9 +32,11 @@
                     <td><%= item.accuracy %></td>
                     <td><%= item.processingTime %></td>
                     <td><%= item.actualTime %></td>
+                    <td><%= item.processingDuration %></td> <!-- New column data -->
                 </tr>
-            <% } %>
+            <% }) %>
         </tbody>
     </table>
+    
 </body>
 </html>

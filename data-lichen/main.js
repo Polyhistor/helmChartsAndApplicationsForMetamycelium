@@ -28,9 +28,9 @@ db.serialize(() => {
             completeness REAL,
             validity INTEGER,
             accuracy REAL,
-            processingTime TEXT,  // Changed this from REAL to TEXT as it's now a datetime
+            processingTime TEXT,
             actualTime TEXT,
-            processingDuration TEXT  // New field
+            processingDuration TEXT
             )`);
 });
 
@@ -61,6 +61,7 @@ app.get('/metadata', async (req, res) => {
         if (err) {
             throw err;
         }
+        console.log(rows)
         res.render('metadata', { metadata: rows });
     });
 });

@@ -188,6 +188,7 @@ def fetch_data_from_minio_and_save(actual_time):
     processing_duration = time.time() - start_time
 
     metadata = create_metadata(actual_time, processing_duration, data_str)
+    print(metadata)
 
     # Send metadata to Data Lichen
     response = requests.post('http://localhost:3000/register', json=metadata)
@@ -201,12 +202,14 @@ def fetch_data_from_minio_and_save(actual_time):
 async def retrieve_and_save_data():
     global storage_info
     print(storage_info)
+    # Determine the actual time as the current timestamp
+    actual_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if not storage_info:
         raise HTTPException(404, "Storage info not found")
 
     try:
-        fetch_data_from_minio_and_save()
+        fetch_data_from_minio_and_save(actual_time)
         return {"status": "Data successfully retrieved and saved to 'weather_data.db'"}
     except ResponseError as err:
         raise HTTPException(status_code=500, detail=f"An error occurred while fetching the data: {err}")
