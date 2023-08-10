@@ -6,11 +6,11 @@ const path = require('path')
 
 
 app.use(bodyParser.json());
+app.use(express.static('public'));
 
 // Define your template engine
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
-
 
 // Initialize SQLite database
 let db = new sqlite3.Database('./metadata.db', (err) => {
@@ -28,18 +28,19 @@ db.serialize(() => {
             completeness REAL,
             validity INTEGER,
             accuracy REAL,
-            processingTime REAL,
-            actualTime TEXT
+            processingTime TEXT,  // Changed this from REAL to TEXT as it's now a datetime
+            actualTime TEXT,
+            processingDuration TEXT  // New field
             )`);
 });
 
 app.post('/register', async (req, res) => {
     const data = req.body;
-    const updateSql = `REPLACE INTO metadata(uniqueIdentifier, serviceName, serviceAddress, completeness, validity, accuracy, processingTime, actualTime)
-        VALUES(?, ?, ?, ?, ?, ?, ?, ?)`;
+    const updateSql = `REPLACE INTO metadata(uniqueIdentifier, serviceName, serviceAddress, completeness, validity, accuracy, processingTime, actualTime, processingDuration)
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`; // Added the processingDuration
 
     db.run(updateSql,
-        [data.uniqueIdentifier, data.serviceName, data.serviceAddress, data.completeness, data.validity, data.accuracy, data.processingTime, data.actualTime], 
+        [data.uniqueIdentifier, data.serviceName, data.serviceAddress, data.completeness, data.validity, data.accuracy, data.processingTime, data.actualTime, data.processingDuration],  // Added the processingDuration
         function(err) {
             if (err) {
                 return console.log(err.message);

@@ -160,33 +160,34 @@ def save_data_to_sqlite(data_str):
     conn.commit()
     conn.close()
 
-def create_metadata(processing_time, data_str):
+def create_metadata(actual_time, processing_duration, data_str):
     total_rows = len(data_str.split('\n'))
     missing_data_points = data_str.count(', ,') + data_str.count(',,')
     
     # Mocking the validity and accuracy for the experiment
     completeness = 100 * (total_rows - missing_data_points) / total_rows
     validity = 100 * (total_rows - missing_data_points) / total_rows
-    accuracy = 100 - (missing_data_points / total_rows * 100)  # A simple formula; adjust as needed
+    accuracy = 100 - (missing_data_points / total_rows * 100)
 
     return {
         "serviceAddress": SERVICE_ADDRESS,
-        "serviceName": "weather domain data",
+        "serviceName": "Weather domain data",
         "uniqueIdentifier": str(uuid.uuid4()),
         "completeness": completeness,
         "validity": validity,
         "accuracy": accuracy,
-        "processingTime": f"{processing_time:.2f} seconds", 
-        "actualTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "actualTime": actual_time,  # when the data became valid or was created
+        "processingTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # when the data was ingested or updated
+        "processingDuration": f"{processing_duration:.2f} seconds"  # how long it took to process the data
     }
 
-def fetch_data_from_minio_and_save():
+def fetch_data_from_minio_and_save(actual_time):
     start_time = time.time()
     data_str = fetch_data_from_minio()
     save_data_to_sqlite(data_str)
-    processing_time = time.time() - start_time
+    processing_duration = time.time() - start_time
 
-    metadata = create_metadata(processing_time, data_str)
+    metadata = create_metadata(actual_time, processing_duration, data_str)
 
     # Send metadata to Data Lichen
     response = requests.post('http://localhost:3000/register', json=metadata)
