@@ -2,11 +2,15 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const sqlite3 = require('sqlite3').verbose();
 const app = express();
+const path = require('path')
+
 
 app.use(bodyParser.json());
 
 // Define your template engine
 app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+
 
 // Initialize SQLite database
 let db = new sqlite3.Database('./metadata.db', (err) => {
@@ -18,6 +22,8 @@ let db = new sqlite3.Database('./metadata.db', (err) => {
 
 db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS metadata(
+            uniqueIdentifier TEXT PRIMARY KEY,
+            serviceName TEXT,
             serviceAddress TEXT,
             completeness REAL,
             validity INTEGER,
@@ -29,14 +35,18 @@ db.serialize(() => {
 
 app.post('/register', async (req, res) => {
     const data = req.body;
-    db.run(`INSERT INTO metadata(serviceAddress, completeness, validity, accuracy, processingTime, actualTime) VALUES(?, ?, ?, ?, ?, ?)`,
-        [data.serviceAddress, data.completeness, data.validity, data.accuracy, data.processingTime, data.actualTime], 
+    const updateSql = `REPLACE INTO metadata(uniqueIdentifier, serviceName, serviceAddress, completeness, validity, accuracy, processingTime, actualTime)
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?)`;
+
+    db.run(updateSql,
+        [data.uniqueIdentifier, data.serviceName, data.serviceAddress, data.completeness, data.validity, data.accuracy, data.processingTime, data.actualTime], 
         function(err) {
             if (err) {
                 return console.log(err.message);
             }
-            console.log(`A row has been inserted with rowid ${this.lastID}`);
+            console.log(`A row has been inserted/updated with UUID ${data.uniqueIdentifier}`);
         });
+
     res.json({ message: 'Metadata registered successfully.' });
 });
 
@@ -45,7 +55,7 @@ app.get("/", (req,res) => {
 })
 
 app.get('/metadata', async (req, res) => {
-    let sql = `SELECT * FROM metadata`;
+    let sql = `SELECT DISTINCT * FROM metadata`;  // Ensure unique services
     db.all(sql, [], (err, rows) => {
         if (err) {
             throw err;
