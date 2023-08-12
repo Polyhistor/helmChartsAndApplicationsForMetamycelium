@@ -4,9 +4,13 @@ from minio import Minio
 from io import BytesIO
 import json
 import os
-import time
+import logging
 
 app = FastAPI()
+
+# Setting up logging
+logging.basicConfig(level=logging.INFO)
+
 
 # Constants
 cluster_id = None 
@@ -53,74 +57,46 @@ def list_json_files(directory='.'):
 
 @app.get('/store-operational-data')
 async def produce_to_kafka(topic: str = 'domain-customer-operational-data'):
-    url = f"{kafka_rest_proxy_base_url}/topics/" + topic
-    headers = {
-        'Content-Type': 'application/vnd.kafka.json.v2+json',
-    }
+    logging.info("Starting to process and store operational data...")
 
-    # Dispatch the "Data loading started" event
-    payload_start = {
-        "records": [
-            {
-                "key": "customer-domain-operational-data-stored",
-                "value": {
-                    "message": "Data loading started"
-                }
-            }
-        ]
-    }
+    # List all JSON files in current directory
+    json_files = [f for f in os.listdir() if f.endswith('.json')]
+    total_files = len(json_files)
+    processed_files = 0
 
-    response = requests.post(url, headers=headers, data=json.dumps(payload_start))
-    if response.status_code != 200:
-        return {"error": response.text}
+    print(total_files)
+    print(json_files)
 
-    # List all JSON files
-    json_files = list_json_files()
-    min_io_bucket_name = "customer-domain-operational-data"
-
-    # Check if bucket exists, if not, create one
-    bucketExists = minio_client.bucket_exists(min_io_bucket_name)
-    if not bucketExists:
-        minio_client.make_bucket(min_io_bucket_name)
-    else: 
-        print("bucket already exists")
-
-    # Iterate through each JSON file and store it in Minio
+    # Loop over all JSON files and store them in Minio
     for json_file in json_files:
-        with open(json_file, 'r') as f:
-            data = json.load(f)
-        
-        # Convert the data to JSON string and encode it
-        json_data = json.dumps(data).encode('utf-8')
-        json_bytes = BytesIO(json_data)
-        min_io_object_name = json_file  # Using the filename as object name in Minio
+        try:
+            # Read the entire JSON file
+            with open(json_file, 'r') as f:
+                data = f.read()
 
-        minio_client.put_object(
-            bucket_name=min_io_bucket_name,
-            object_name=min_io_object_name,
-            data=json_bytes,
-            length=len(json_data),
-            content_type='application/json',
-        )
+            # Convert data to bytes and store in Minio
+            data_bytes = data.encode('utf-8')
+            data_io = BytesIO(data_bytes)
+            minio_bucket_name = "customer-domain-operational-data"
+            
+            # Check bucket existence and create if not
+            if not minio_client.bucket_exists(minio_bucket_name):
+                minio_client.make_bucket(minio_bucket_name)
+            
+            # Put object in Minio
+            minio_client.put_object(
+                bucket_name=minio_bucket_name,
+                object_name=json_file,  # Store with the original filename
+                data=data_io,
+                length=len(data_bytes),
+                content_type='application/json',
+            )
 
-    # Dispatch the "Data loading finished" event
-    payload_end = {
-        "records": [
-            {   
-                "key" : "customer-domain-operational-data-stored",
-                "value": {
-                    "message": "Data loading finished",
-                     "distributedStorageAddress" : minio_url,
-                     "minio_access_key": minio_acces_key,
-                     "minio_secret_key" : minio_secret_key,
-                     "bucket_name": min_io_bucket_name
-                }
-            }
-        ]
-    }
+            processed_files += 1
+            logging.info(f"Processed {processed_files}/{total_files} files.")
+        except Exception as e:
+            logging.error(f"Error processing file {json_file}. Details: {str(e)}")
 
-    response = requests.post(url, headers=headers, data=json.dumps(payload_end))
-    if response.status_code != 200:
-        return {"error": response.text}
+    logging.info("Finished processing and storing operational data.")
+    return {"status": f"Data loaded from {processed_files}/{total_files} files."}
 
-    return {"status": "Data loaded and events dispatched"}
