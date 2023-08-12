@@ -9,6 +9,7 @@ uvicorn = "*"
 pandas = "*"
 confluent-kafka = "*"
 requests = "*"
+minio = "*"
 
 [dev-packages]
 
