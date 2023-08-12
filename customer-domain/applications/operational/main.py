@@ -57,6 +57,27 @@ def list_json_files(directory='.'):
 
 @app.get('/store-operational-data')
 async def produce_to_kafka(topic: str = 'domain-customer-operational-data'):
+    # Kafka REST Proxy URL for producing messages to a topic
+    url = f"{kafka_rest_proxy_base_url}/topics/" + topic
+    headers = {
+        'Content-Type': 'application/vnd.kafka.json.v2+json',
+    }
+
+        # Dispatch the "Data loading started" event
+    payload_start = {
+        "records": [
+            {
+                "key" : "customer-domain-operational-data-stored",
+                "value": {
+                    "message": "Data loading started"
+                }
+            }
+        ]
+    }
+    response = requests.post(url, headers=headers, data=json.dumps(payload_start))
+    if response.status_code != 200:
+        return {"error": response.text}
+
     logging.info("Starting to process and store operational data...")
 
     # List all JSON files in current directory
@@ -96,6 +117,26 @@ async def produce_to_kafka(topic: str = 'domain-customer-operational-data'):
             logging.info(f"Processed {processed_files}/{total_files} files.")
         except Exception as e:
             logging.error(f"Error processing file {json_file}. Details: {str(e)}")
+
+    # Dispatch the "Data loading finished" event
+    payload_end = {
+        "records": [
+            {   
+                "key" : "customer-domain-operational-data-stored",
+                "value": {
+                    "message": "Data loading finished",
+                     "distributedStorageAddress" : minio_url,
+                     "minio_access_key": minio_acces_key,
+                     "minio_secret_key" : minio_secret_key,
+                     "bucket_name": minio_bucket_name,
+                     "object_name" : json_file
+                }
+            }
+        ]
+    }
+    response = requests.post(url, headers=headers, data=json.dumps(payload_end))
+    if response.status_code != 200:
+        return {"error": response.text}
 
     logging.info("Finished processing and storing operational data.")
     return {"status": f"Data loaded from {processed_files}/{total_files} files."}
