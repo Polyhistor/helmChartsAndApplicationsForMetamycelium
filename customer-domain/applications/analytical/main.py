@@ -150,13 +150,29 @@ def fetch_data_from_minio():
 def save_data_to_sqlite(data_str):
     conn = sqlite3.connect('customer_data.db')
     cursor = conn.cursor()
-    data_file = StringIO(data_str)
-    reader = csv.reader(data_file)
-    header = next(reader)
-    columns = ', '.join([f'{col} TEXT' for col in header])
+    
+    print(data_str[:1800])  # prints up to character 1800
+
+
+
+    data_json = json.loads(data_str)
+    
+    # Assume all items in the JSON have the same structure.
+    # We use the first item to determine the columns
+    if not data_json:
+        print("No data to save!")
+        return
+
+    first_item = data_json[0]
+    columns = ', '.join([f'"{col}" TEXT' for col in first_item.keys()])
+
     cursor.execute(f"CREATE TABLE IF NOT EXISTS customer_data ({columns})")
-    for row in reader:
-        cursor.execute(f"INSERT INTO customer_data VALUES ({', '.join(['?' for _ in row])})", row)
+
+    for item in data_json:
+        keys = ', '.join([f'"{k}"' for k in item.keys()])
+        question_marks = ', '.join(['?' for _ in item.values()])
+        cursor.execute(f"INSERT INTO customer_data ({keys}) VALUES ({question_marks})", list(item.values()))
+
     conn.commit()
     conn.close()
 
