@@ -10,15 +10,29 @@ from sqlite3 import Error
 from io import StringIO
 import csv
 import time 
-from utilities import ensure_table_exists, insert_into_db
+from utilities import ensure_table_exists, insert_into_db, KafkaRESTProxyExporter
 from datetime import datetime
 import uuid
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
 
 app = FastAPI()
+FastAPIInstrumentor.instrument_app(app)
+
+kafka_exporter = KafkaRESTProxyExporter(topic_name="telemetry-topic", rest_proxy_url="http://localhost/kafka-rest-proxy")
+span_processor = BatchSpanProcessor(kafka_exporter)
+trace.get_tracer_provider().add_span_processor(span_processor)
+
+# Setting up OpenTelemetry
+trace.set_tracer_provider(TracerProvider())
+tracer = trace.get_tracer(__name__)
 
 SERVICE_ADDRESS = "http://localhost:8000"
-
 consumer_base_url = None
+
 # Storage info dictionary
 storage_info = {}
 minio_url = "localhost:9001"
@@ -81,6 +95,9 @@ async def shutdown_event():
     response = requests.delete(url)
     print(f"Consumer deleted with status code {response.status_code}")
 
+    # Shutdown OpenTelemetry
+    trace.get_tracer_provider().shutdown()
+
 
 @app.get("/")
 async def main_function(): 
@@ -88,50 +105,55 @@ async def main_function():
 
 @app.get("/subscribe-to-operational-data")
 async def consume_kafka_message(background_tasks: BackgroundTasks):
-    if consumer_base_url is None:
-        return {"status": "Consumer has not been initialized. Please try again later."}
+    tracer = trace.get_tracer(__name__)
 
-    print(consumer_base_url)
-    url = consumer_base_url + "/records"
-    headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
+    # Start a new span for this endpoint
+    with tracer.start_as_current_span("consume_kafka_message"):
+        if consumer_base_url is None:
+            return {"status": "Consumer has not been initialized. Please try again later."}
 
-    ensure_table_exists.ensure_table_exists()
+        print(consumer_base_url)
+        url = consumer_base_url + "/records"
+        headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
 
-    def consume_records():
-        global storage_info
-        
-        response = requests.get(url, headers=headers)
-        if response.status_code != 200:
-            raise Exception(f"GET /records/ did not succeed: {response.text}")
-        else:
-            records = response.json()
-            for record in records:
-                decoded_key = base64.b64decode(record['key']).decode('utf-8') if record['key'] else None
-                decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
-                value_obj = json.loads(decoded_value_json)
+        ensure_table_exists.ensure_table_exists()
 
-                storage_info = {
-                "distributedStorageAddress": value_obj.get('distributedStorageAddress', ''),
-                "minio_access_key": value_obj.get('minio_access_key', ''),
-                "minio_secret_key": value_obj.get('minio_secret_key', ''),
-                "bucket_name": value_obj.get('bucket_name', ''),
-                "object_name": value_obj.get('object_name', '')
-                }
+        # You can use the tracer within the consume_records function to instrument finer details.
+        def consume_records():
+            with tracer.start_as_current_span("consume_records"):
+                global storage_info
+                
+                response = requests.get(url, headers=headers)
+                if response.status_code != 200:
+                    raise Exception(f"GET /records/ did not succeed: {response.text}")
+                else:
+                    records = response.json()
+                    for record in records:
+                        decoded_key = base64.b64decode(record['key']).decode('utf-8') if record['key'] else None
+                        decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
+                        value_obj = json.loads(decoded_value_json)
 
-                # Insert the storage info into the SQLite database
-                insert_into_db.insert_into_db(storage_info)
+                        storage_info = {
+                            "distributedStorageAddress": value_obj.get('distributedStorageAddress', ''),
+                            "minio_access_key": value_obj.get('minio_access_key', ''),
+                            "minio_secret_key": value_obj.get('minio_secret_key', ''),
+                            "bucket_name": value_obj.get('bucket_name', ''),
+                            "object_name": value_obj.get('object_name', '')
+                        }
 
-                print(f"Consumed record with key {decoded_key} and value {value_obj['message']} from topic {record['topic']}")
-                if 'distributedStorageAddress' in value_obj:
-                    print(f"Distributed storage address: {value_obj['distributedStorageAddress']}")
-                    print(f"Minio access key: {value_obj['minio_access_key']}")
-                    print(f"Minio secret key: {value_obj['minio_secret_key']}")
-                    print(f"Bucket name: {value_obj['bucket_name']}")
-                    print(f"Object name: {value_obj['object_name']}")
+                        # Insert the storage info into the SQLite database
+                        insert_into_db.insert_into_db(storage_info)
 
+                        print(f"Consumed record with key {decoded_key} and value {value_obj['message']} from topic {record['topic']}")
+                        if 'distributedStorageAddress' in value_obj:
+                            print(f"Distributed storage address: {value_obj['distributedStorageAddress']}")
+                            print(f"Minio access key: {value_obj['minio_access_key']}")
+                            print(f"Minio secret key: {value_obj['minio_secret_key']}")
+                            print(f"Bucket name: {value_obj['bucket_name']}")
+                            print(f"Object name: {value_obj['object_name']}")
 
-    background_tasks.add_task(consume_records)
-    return {"status": "Consuming records in the background"}
+        background_tasks.add_task(consume_records)
+        return {"status": "Consuming records in the background"}
 
 
 def fetch_data_from_minio():
@@ -151,11 +173,8 @@ def save_data_to_sqlite(data_str):
     conn = sqlite3.connect('customer_data.db')
     cursor = conn.cursor()
     
-    print(data_str[:1800])  # prints up to character 1800
-
-
-
-    data_json = json.loads(data_str)
+    lines = data_str.strip().split('\n')
+    data_json = [json.loads(line) for line in lines]
     
     # Assume all items in the JSON have the same structure.
     # We use the first item to determine the columns

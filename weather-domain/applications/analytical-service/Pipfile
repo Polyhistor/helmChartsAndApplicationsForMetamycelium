@@ -11,6 +11,10 @@ uvicorn = "*"
 confluent-kafka = "*"
 requests = "*"
 minio = "*"
+opentelemetry-sdk = "*"
+opentelemetry-instrumentation-fastapi = "*"
+opentelemetry-instrumentation-requests = "*"
+opentelemetry-api = "*"
 
 [dev-packages]
 
