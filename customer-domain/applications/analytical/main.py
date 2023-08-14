@@ -173,8 +173,16 @@ def save_data_to_sqlite(data_str):
     conn = sqlite3.connect('customer_data.db')
     cursor = conn.cursor()
     
+<<<<<<< HEAD
     lines = data_str.strip().split('\n')
     data_json = [json.loads(line) for line in lines]
+=======
+    print(data_str[:1800])  # prints up to character 1800
+
+
+
+    data_json = json.loads(data_str)
+>>>>>>> 6f349f394c509788e1061c0fd158ac3ce9212474
     
     # Assume all items in the JSON have the same structure.
     # We use the first item to determine the columns
