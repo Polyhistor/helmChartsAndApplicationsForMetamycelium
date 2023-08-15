@@ -20,12 +20,14 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 app = FastAPI()
 FastAPIInstrumentor.instrument_app(app)
 
-kafka_exporter = KafkaRESTProxyExporter(topic_name="telemetry-topic", rest_proxy_url="http://localhost/kafka-rest-proxy")
+# Setting up the trace provider
+trace.set_tracer_provider(TracerProvider())
+
+kafka_exporter = KafkaRESTProxyExporter(topic_name="telemetry", rest_proxy_url="http://localhost/kafka-rest-proxy")
 span_processor = BatchSpanProcessor(kafka_exporter)
 trace.get_tracer_provider().add_span_processor(span_processor)
 
 # Setting up OpenTelemetry
-trace.set_tracer_provider(TracerProvider())
 tracer = trace.get_tracer(__name__)
 
 SERVICE_ADDRESS = "http://localhost:8000"
