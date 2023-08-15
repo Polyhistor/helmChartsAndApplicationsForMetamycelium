@@ -1,4 +1,5 @@
 from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
+import requests
 
 class KafkaRESTProxyExporter(SpanExporter):
     def __init__(self, topic_name, rest_proxy_url):
