@@ -6,11 +6,9 @@ import requests
 import json
 import base64
 import sqlite3
-from sqlite3 import Error
-from io import StringIO
-import csv
 import time 
-from utilities import ensure_table_exists, insert_into_db, KafkaRESTProxyExporter
+from utilities import ensure_table_exists, insert_into_db
+from utilities.kafka_rest_proxy_exporter import KafkaRESTProxyExporter
 from datetime import datetime
 import uuid
 from opentelemetry import trace
@@ -173,16 +171,8 @@ def save_data_to_sqlite(data_str):
     conn = sqlite3.connect('customer_data.db')
     cursor = conn.cursor()
     
-<<<<<<< HEAD
     lines = data_str.strip().split('\n')
     data_json = [json.loads(line) for line in lines]
-=======
-    print(data_str[:1800])  # prints up to character 1800
-
-
-
-    data_json = json.loads(data_str)
->>>>>>> 6f349f394c509788e1061c0fd158ac3ce9212474
     
     # Assume all items in the JSON have the same structure.
     # We use the first item to determine the columns
