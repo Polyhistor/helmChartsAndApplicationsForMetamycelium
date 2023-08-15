@@ -1,5 +1,6 @@
-from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 import requests
+import json
+from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 
 class KafkaRESTProxyExporter(SpanExporter):
     def __init__(self, topic_name, rest_proxy_url):
@@ -23,13 +24,43 @@ class KafkaRESTProxyExporter(SpanExporter):
         return SpanExportResult.FAILURE
 
     def serialize_span(self, span):
-        # Convert the span to a dictionary or JSON format as desired
-        return {
-            "name": span.name,
-            "context": span.get_span_context(),
-            "attributes": span.attributes,
-            # add any other necessary fields
-        }
+        try:
+            span_context = span.get_span_context()
+
+            # Convert the TraceState object to a string representation or another serializable format
+            trace_state_str = str(span_context.trace_state)
+
+            # Extract the dictionary from BoundedAttributes
+            attributes_dict = dict(span.attributes)
+
+            serialized_span = {
+                "name": span.name,
+                "context": {
+                    "trace_id": span_context.trace_id,
+                    "span_id": span_context.span_id,
+                    "is_remote": span_context.is_remote,
+                    "trace_flags": span_context.trace_flags,
+                    "trace_state": trace_state_str  # Use the serialized TraceState
+                },
+                "attributes": attributes_dict,  # Use the extracted dictionary
+                # add any other necessary fields
+            }
+
+            # This is a check to identify the non-serializable part
+            json.dumps(serialized_span)
+            return serialized_span
+
+        except TypeError as e:
+            # This will print the problematic portion of the serialized_span
+            print(e)
+            for key, value in serialized_span.items():
+                try:
+                    json.dumps({key: value})
+                except TypeError:
+                    print(f"Key '{key}' with value '{value}' is causing the error")
+            raise
+
+
 
     def shutdown(self):
         pass
