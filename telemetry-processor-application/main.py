@@ -4,6 +4,7 @@ from fastapi import FastAPI, BackgroundTasks
 from minio import Minio
 import requests
 import json
+import base64
 
 app = FastAPI()
 
@@ -78,7 +79,13 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
             raise Exception(f"GET /records/ did not succeed: {response.text}")
         else:
             records = response.json()
-            print(records)
+            for record in records:
+                decoded_key = base64.b64decode(record['key']).decode('utf-8') if record['key'] else None
+                decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
+                value_obj = json.loads(decoded_value_json)
+                print(decoded_key)
+                print(value_obj)
+                print(f"Consumed record with key {decoded_key} and value ")
 
 
     background_tasks.add_task(consume_records)

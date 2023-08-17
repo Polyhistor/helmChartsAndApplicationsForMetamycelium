@@ -23,7 +23,7 @@ FastAPIInstrumentor.instrument_app(app)
 # Setting up the trace provider
 trace.set_tracer_provider(TracerProvider())
 
-kafka_exporter = KafkaRESTProxyExporter(topic_name="telemetry", rest_proxy_url="http://localhost/kafka-rest-proxy")
+kafka_exporter = KafkaRESTProxyExporter(topic_name="telemetry-data", rest_proxy_url="http://localhost/kafka-rest-proxy")
 span_processor = BatchSpanProcessor(kafka_exporter)
 trace.get_tracer_provider().add_span_processor(span_processor)
 
