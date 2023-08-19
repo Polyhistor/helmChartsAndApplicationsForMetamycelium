@@ -15,18 +15,10 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.exporter.jaeger import JaegerSpanExporter
 
 
 app = FastAPI()
 FastAPIInstrumentor.instrument_app(app)
-
-# Set up Jaeger Exporter
-jaeger_exporter = JaegerSpanExporter(
-    service_name="my_service",
-    agent_host_name="localhost",
-    agent_port=6831,
-)
 
 
 # Setting up the trace provider
