@@ -15,6 +15,7 @@ opentelemetry-sdk = "*"
 opentelemetry-instrumentation-fastapi = "*"
 opentelemetry-instrumentation-requests = "*"
 opentelemetry-api = "*"
+prometheus-client = "*"
 
 [dev-packages]
 
