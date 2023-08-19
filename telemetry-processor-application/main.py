@@ -5,6 +5,11 @@ from minio import Minio
 import requests
 import json
 import base64
+from prometheus_client import Counter, start_http_server, generate_latest, CONTENT_TYPE_LATEST
+
+
+# Define a counter metric
+kafka_records_consumed = Counter('kafka_records_consumed_total', 'Total Kafka records consumed')
 
 app = FastAPI()
 
@@ -49,6 +54,8 @@ async def startup_event():
         if response.status_code != 204:
             raise Exception(
                 "Failed to subscribe consumer to topic: " + response.text)
+        
+    start_http_server(8001)
 
 
 @app.on_event("shutdown")
@@ -87,10 +94,13 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
                 print(value_obj)
                 print(f"Consumed record with key {decoded_key} and value ")
 
+                # Increment the counter for each record consumed
+                kafka_records_consumed.inc()
 
     background_tasks.add_task(consume_records)
     return {"status": "Consuming records in the background"}
 
 
-
-
+@app.get("/metrics")
+async def get_metrics():
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
