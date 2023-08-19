@@ -27,23 +27,29 @@ class KafkaRESTProxyExporter(SpanExporter):
         try:
             span_context = span.get_span_context()
 
-            # Convert the TraceState object to a string representation or another serializable format
+            # Convert the TraceState object to a string representation
             trace_state_str = str(span_context.trace_state)
 
             # Extract the dictionary from BoundedAttributes
             attributes_dict = dict(span.attributes)
 
+            # Construct the serialized span
             serialized_span = {
                 "name": span.name,
                 "context": {
                     "trace_id": span_context.trace_id,
                     "span_id": span_context.span_id,
+                    "parent_span_id": span.parent_span_id,  # Include the parent span ID
                     "is_remote": span_context.is_remote,
                     "trace_flags": span_context.trace_flags,
-                    "trace_state": trace_state_str  # Use the serialized TraceState
+                    "trace_state": trace_state_str  
                 },
-                "attributes": attributes_dict,  # Use the extracted dictionary
-                # add any other necessary fields
+                "start_time": span.start_time,  # Start time of the span
+                "end_time": span.end_time,  # End time of the span
+                "span_kind": span.kind.name,  # Span kind (e.g., CLIENT, SERVER)
+                "status": span.status.code.name,  # Status of the span (e.g., OK, ERROR)
+                "events": [{"name": event.name, "timestamp": event.timestamp, "attributes": dict(event.attributes)} for event in span.events],  # Events associated with the span
+                "attributes": attributes_dict  
             }
 
             # This is a check to identify the non-serializable part
@@ -51,7 +57,7 @@ class KafkaRESTProxyExporter(SpanExporter):
             return serialized_span
 
         except TypeError as e:
-            # This will print the problematic portion of the serialized_span
+            # Handle serialization errors
             print(e)
             for key, value in serialized_span.items():
                 try:
