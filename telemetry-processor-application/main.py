@@ -14,6 +14,9 @@ SERVICE_ADDRESS = "http://localhost:8008"
 
 # Define a counter metric
 kafka_records_consumed = Counter('kafka_records_consumed_total', 'Total Kafka records consumed')
+# Create a histogram to measure the time it takes to process Kafka messages
+KAFKA_PROCESSING_TIME = Histogram('kafka_processing_duration_seconds', 'Time taken for processing kafka messages')
+
 
 app = FastAPI()
 
@@ -82,7 +85,7 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
     url = consumer_base_url + "/records"
     headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
 
-
+    @KAFKA_PROCESSING_TIME.time()
     def consume_records():
         
         response = requests.get(url, headers=headers)
