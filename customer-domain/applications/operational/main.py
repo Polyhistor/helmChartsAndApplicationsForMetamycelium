@@ -8,6 +8,11 @@ import logging
 
 app = FastAPI()
 
+# Global variables
+SERVICE_NAME = "CUSTOMER_DOMAIN_OPERATIONAL_SERVICE"
+SERVICE_ADDRESS = "http://localhost:8001"
+
+
 # Setting up logging
 logging.basicConfig(level=logging.INFO)
 
