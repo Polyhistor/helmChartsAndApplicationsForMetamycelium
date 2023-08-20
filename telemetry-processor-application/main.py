@@ -5,7 +5,7 @@ from minio import Minio
 import requests
 import json
 import base64
-from prometheus_client import Counter, start_http_server, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import Counter, start_http_server, generate_latest, CONTENT_TYPE_LATEST, Histogram
 
 
 # Define a counter metric
@@ -104,3 +104,5 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
 @app.get("/metrics")
 async def get_metrics():
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
