@@ -8,6 +8,10 @@ import base64
 from prometheus_client import Counter, start_http_server, generate_latest, CONTENT_TYPE_LATEST, Histogram
 
 
+# Global variables
+SERVICE_NAME = "TELEMETRY_PROCESSOR_SERVICE"
+SERVICE_ADDRESS = "http://localhost:8008"
+
 # Define a counter metric
 kafka_records_consumed = Counter('kafka_records_consumed_total', 'Total Kafka records consumed')
 
