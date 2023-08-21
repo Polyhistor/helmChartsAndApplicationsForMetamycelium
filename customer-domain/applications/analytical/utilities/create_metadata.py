@@ -1,5 +1,5 @@
 import uuid
-import datetime
+from datetime import datetime
 
 SERVICE_ADDRESS = "http://localhost:8000"
 
