@@ -7,7 +7,7 @@ import json
 import base64
 import sqlite3
 import time 
-from utilities import ensure_table_exists, insert_into_db, fetch_data_from_minio_and_save
+from utilities import ensure_table_exists, insert_into_db, fetch_data_from_minio_and_save, register_metadata_to_data_lichen
 from utilities.kafka_rest_proxy_exporter import KafkaRESTProxyExporter
 from datetime import datetime
 import uuid
@@ -158,30 +158,6 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
         return {"status": "Consuming records in the background"}
 
 
-def fetch_data_from_minio():
-    minio_client = Minio(
-        storage_info["distributedStorageAddress"],
-        access_key=storage_info["minio_access_key"],
-        secret_key=storage_info["minio_secret_key"],
-        secure=False
-    )
-    data = minio_client.get_object(storage_info["bucket_name"], storage_info["object_name"])
-    data_str = ''
-    for d in data.stream(32*1024):
-        data_str += d.decode()
-    return data_str
-
-
-def register_metadata_to_data_lichen():
-    metadata = fetch_data_from_minio_and_save.fetch_data_from_minio_and_save(storage_info)
-    # Send metadata to Data Lichen
-    response = requests.post('http://localhost:3000/register', json=metadata)
-    if response.status_code == 200:
-        print(response.json()['message'])
-    else:
-        print("Failed to register metadata with Data Lichen.")
-
-
 @app.get("/retrieve_and_save_data")
 async def retrieve_and_save_data():
     global storage_info
@@ -191,7 +167,7 @@ async def retrieve_and_save_data():
         raise HTTPException(404, "Storage info not found")
 
     try:
-        fetch_data_from_minio_and_save.fetch_data_from_minio_and_save(storage_info)
+        register_metadata_to_data_lichen.register_metadata_to_data_lichen(storage_info)
         return {"status": "Data successfully retrieved and saved to 'customer_data.db'"}
     except ResponseError as err:
         raise HTTPException(status_code=500, detail=f"An error occurred while fetching the data: {err}")
