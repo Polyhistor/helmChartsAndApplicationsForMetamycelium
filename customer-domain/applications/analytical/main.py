@@ -7,7 +7,7 @@ import json
 import base64
 import sqlite3
 import time 
-from utilities import ensure_table_exists, insert_into_db
+from utilities import ensure_table_exists, insert_into_db, register_metadata_to_data_lichen
 from utilities.kafka_rest_proxy_exporter import KafkaRESTProxyExporter
 from datetime import datetime
 import uuid
@@ -171,62 +171,69 @@ def fetch_data_from_minio():
         data_str += d.decode()
     return data_str
 
-def save_data_to_sqlite(data_str):
-    conn = sqlite3.connect('customer_data.db')
-    cursor = conn.cursor()
+# def save_data_to_sqlite(data_str):
+#     conn = sqlite3.connect('customer_data.db')
+#     cursor = conn.cursor()
     
-    lines = data_str.strip().split('\n')
-    data_json = [json.loads(line) for line in lines]
+#     lines = data_str.strip().split('\n')
+#     data_json = [json.loads(line) for line in lines]
     
-    # Assume all items in the JSON have the same structure.
-    # We use the first item to determine the columns
-    if not data_json:
-        print("No data to save!")
-        return
+#     # Assume all items in the JSON have the same structure.
+#     # We use the first item to determine the columns
+#     if not data_json:
+#         print("No data to save!")
+#         return
 
-    first_item = data_json[0]
-    columns = ', '.join([f'"{col}" TEXT' for col in first_item.keys()])
+#     first_item = data_json[0]
+#     columns = ', '.join([f'"{col}" TEXT' for col in first_item.keys()])
 
-    cursor.execute(f"CREATE TABLE IF NOT EXISTS customer_data ({columns})")
+#     cursor.execute(f"CREATE TABLE IF NOT EXISTS customer_data ({columns})")
 
-    for item in data_json:
-        keys = ', '.join([f'"{k}"' for k in item.keys()])
-        question_marks = ', '.join(['?' for _ in item.values()])
-        cursor.execute(f"INSERT INTO customer_data ({keys}) VALUES ({question_marks})", list(item.values()))
+#     for item in data_json:
+#         keys = ', '.join([f'"{k}"' for k in item.keys()])
+#         question_marks = ', '.join(['?' for _ in item.values()])
+#         cursor.execute(f"INSERT INTO customer_data ({keys}) VALUES ({question_marks})", list(item.values()))
 
-    conn.commit()
-    conn.close()
+#     conn.commit()
+#     conn.close()
 
-def create_metadata(actual_time, processing_duration, data_str):
-    total_rows = len(data_str.split('\n'))
-    missing_data_points = data_str.count(', ,') + data_str.count(',,')
+# def create_metadata(actual_time, processing_duration, data_str):
+#     total_rows = len(data_str.split('\n'))
+#     missing_data_points = data_str.count(', ,') + data_str.count(',,')
     
-    # Mocking the validity and accuracy for the experiment
-    completeness = 100 * (total_rows - missing_data_points) / total_rows
-    validity = 100 * (total_rows - missing_data_points) / total_rows
-    accuracy = 100 - (missing_data_points / total_rows * 100)
+#     # Mocking the validity and accuracy for the experiment
+#     completeness = 100 * (total_rows - missing_data_points) / total_rows
+#     validity = 100 * (total_rows - missing_data_points) / total_rows
+#     accuracy = 100 - (missing_data_points / total_rows * 100)
 
-    return {
-        "serviceAddress": SERVICE_ADDRESS,
-        "serviceName": "Customer domain data",
-        "uniqueIdentifier": str(uuid.uuid4()),
-        "completeness": completeness,
-        "validity": validity,
-        "accuracy": accuracy,
-        "actualTime": actual_time,  # when the data became valid or was created
-        "processingTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # when the data was ingested or updated
-        "processingDuration": f"{processing_duration:.2f} seconds"  # how long it took to process the data
-    }
+#     return {
+#         "serviceAddress": SERVICE_ADDRESS,
+#         "serviceName": "Customer domain data",
+#         "uniqueIdentifier": str(uuid.uuid4()),
+#         "completeness": completeness,
+#         "validity": validity,
+#         "accuracy": accuracy,
+#         "actualTime": actual_time,  # when the data became valid or was created
+#         "processingTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # when the data was ingested or updated
+#         "processingDuration": f"{processing_duration:.2f} seconds"  # how long it took to process the data
+#     }
 
-def fetch_data_from_minio_and_save(actual_time):
-    start_time = time.time()
-    data_str = fetch_data_from_minio()
-    save_data_to_sqlite(data_str)
-    processing_duration = time.time() - start_time
+# def fetch_data_from_minio_and_save():
+#     # Determine the actual time as the current timestamp
+#     actual_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+#     start_time = time.time()
+#     data_str = fetch_data_from_minio()
+#     save_data_to_sqlite(data_str)
+#     processing_duration = time.time() - start_time
 
-    metadata = create_metadata(actual_time, processing_duration, data_str)
-    print(metadata)
+#     metadata = create_metadata(actual_time, processing_duration, data_str)
+#     print(metadata)
 
+#     return metadata
+
+
+def register_metadata_to_data_lichen(metadata):
+    metadata = fetch_data_from_minio_and_save()
     # Send metadata to Data Lichen
     response = requests.post('http://localhost:3000/register', json=metadata)
     if response.status_code == 200:
@@ -239,8 +246,6 @@ def fetch_data_from_minio_and_save(actual_time):
 async def retrieve_and_save_data():
     global storage_info
     print(storage_info)
-    # Determine the actual time as the current timestamp
-    actual_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if not storage_info:
         raise HTTPException(404, "Storage info not found")
