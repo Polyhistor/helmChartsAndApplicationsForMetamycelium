@@ -1,7 +1,10 @@
 import sqlite3
 
 def insert_into_db(storage_info):
-    conn = sqlite3.connect('app_data.db')
+    print('YOOOOOOOO')
+    print(storage_info)
+
+    conn = sqlite3.connect('object_storage_address.db')
     cursor = conn.cursor()
     cursor.execute("""
     INSERT INTO storage_info (distributedStorageAddress, minio_access_key, minio_secret_key, bucket_name, object_name)

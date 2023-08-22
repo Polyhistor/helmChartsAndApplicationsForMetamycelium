@@ -7,7 +7,7 @@ import json
 import base64
 import sqlite3
 import time 
-from utilities import ensure_table_exists, insert_into_db, fetch_data_from_minio_and_save, register_metadata_to_data_lichen
+from utilities import ensure_table_exists, insert_into_db, register_metadata_to_data_lichen
 from utilities.kafka_rest_proxy_exporter import KafkaRESTProxyExporter
 from datetime import datetime
 import uuid
@@ -118,7 +118,7 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
         url = consumer_base_url + "/records"
         headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
 
-        ensure_table_exists.ensure_table_exists()
+        ensure_table_exists.ensure_table_exists('object_storage_address.db')
 
         # You can use the tracer within the consume_records function to instrument finer details.
         def consume_records():
@@ -158,7 +158,7 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
         return {"status": "Consuming records in the background"}
 
 
-@app.get("/retrieve_and_save_data")
+@app.get("/register-data-to-data-lichen")
 async def retrieve_and_save_data():
     global storage_info
     print(storage_info)
@@ -167,11 +167,12 @@ async def retrieve_and_save_data():
         raise HTTPException(404, "Storage info not found")
 
     try:
-        register_metadata_to_data_lichen.register_metadata_to_data_lichen(storage_info)
+        register_metadata_to_data_lichen.register_metadata_to_data_lichen()
         return {"status": "Data successfully retrieved and saved to 'customer_data.db'"}
     except ResponseError as err:
         raise HTTPException(status_code=500, detail=f"An error occurred while fetching the data: {err}")
 
 
-
-
+@app.get('/publish-domains-data')
+async def publish_domains_data():
+    return 'yo'

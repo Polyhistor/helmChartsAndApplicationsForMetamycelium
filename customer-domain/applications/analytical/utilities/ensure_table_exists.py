@@ -1,7 +1,7 @@
 import sqlite3
 
-def ensure_table_exists():
-    conn = sqlite3.connect('app_data.db')
+def ensure_table_exists(table_name):
+    conn = sqlite3.connect(table_name)
     cursor = conn.cursor()
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS storage_info (
