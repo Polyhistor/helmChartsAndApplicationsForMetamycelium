@@ -124,7 +124,7 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
         def consume_records():
             with tracer.start_as_current_span("consume_records"):
                 global storage_info
-                
+
                 response = requests.get(url, headers=headers)
                 if response.status_code != 200:
                     raise Exception(f"GET /records/ did not succeed: {response.text}")
@@ -142,6 +142,11 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
                             "bucket_name": value_obj.get('bucket_name', ''),
                             "object_name": value_obj.get('object_name', '')
                         }
+
+                        # If distributedStorageAddress is empty, skip the storage
+                        if not storage_info["distributedStorageAddress"]:
+                            print("Skipping storage to SQLite since distributedStorageAddress is empty.")
+                            continue
 
                         # Insert the storage info into the SQLite database
                         insert_into_db.insert_into_db(storage_info)

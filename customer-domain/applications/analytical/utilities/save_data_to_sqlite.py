@@ -7,8 +7,7 @@ def save_data_to_sqlite(data_str):
     
     lines = data_str.strip().split('\n')
     data_json = [json.loads(line) for line in lines]
-    
-    # If there's no data to save, return early
+
     if not data_json:
         print("No data to save!")
         return
@@ -31,8 +30,14 @@ def save_data_to_sqlite(data_str):
             if k.replace('"', '') not in column_names:
                 cursor.execute(f"ALTER TABLE customer_data ADD COLUMN {k} TEXT")
 
-        question_marks = ', '.join(['?' for _ in item.values()])
-        cursor.execute(f"INSERT INTO customer_data ({', '.join(keys)}) VALUES ({question_marks})", list(item.values()))
+        # Convert nested dictionary values to string
+        values = [json.dumps(value) if isinstance(value, dict) else value for value in item.values()]
+
+        question_marks = ', '.join(['?' for _ in values])
+        try:
+            cursor.execute(f"INSERT INTO customer_data ({', '.join(keys)}) VALUES ({question_marks})", values)
+        except Exception as e:
+            print(f"Error while inserting data into SQLite: {e}")
 
     conn.commit()
     conn.close()
