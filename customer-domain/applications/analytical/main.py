@@ -5,12 +5,8 @@ from minio import Minio
 import requests
 import json
 import base64
-import sqlite3
-import time 
 from utilities import ensure_table_exists, insert_into_db, register_metadata_to_data_lichen
 from utilities.kafka_rest_proxy_exporter import KafkaRESTProxyExporter
-from datetime import datetime
-import uuid
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor

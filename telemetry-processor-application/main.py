@@ -37,7 +37,7 @@ async def startup_event():
     try:
         # attemping to create a consumer 
         response = requests.post(url, headers=headers, data=json.dumps(data))
-        # will raise an HTTPError if the status code is 4xx or 5xx
+        # will raise an HTTPError if the status code is 4xx or 5xx 
         response.raise_for_status()
     except requests.exceptions.HTTPError as e:
         if response.status_code == 409:
