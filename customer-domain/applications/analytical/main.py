@@ -5,7 +5,7 @@ from minio import Minio
 import requests
 import json
 import base64
-from utilities import ensure_table_exists, insert_into_db, register_metadata_to_data_lichen
+from utilities import ensure_table_exists, insert_into_db, register_metadata_to_data_lichen, upload_data_to_minio, fetch_all_data_from_sqlite
 from utilities.kafka_rest_proxy_exporter import KafkaRESTProxyExporter
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
@@ -176,4 +176,16 @@ async def retrieve_and_save_data():
 
 @app.get('/publish-domains-data')
 async def publish_domains_data():
-    return 'yo'
+    # Fetch all data from SQLite
+    all_data = fetch_all_data_from_sqlite.fetch_all_data_from_sqlite()
+
+    # Convert the data to a suitable format, say JSON
+    data_json = json.dumps(all_data)
+
+    # Upload to Minio
+    bucket_name = 'custom-domain-analytical-data'
+    try:
+        upload_data_to_minio.upload_data_to_minio(bucket_name, data_json)
+        return {"status": "Data successfully fetched from SQLite and saved to Minio"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {e}")
