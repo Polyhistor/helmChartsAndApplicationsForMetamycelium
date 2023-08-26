@@ -109,7 +109,7 @@ async def main_function():
 
 
 # this endpoint should only run after the startup event has succesfully run
-@app.get("/subscribe-to-operational-data")
+@app.get("/subscribe-to-operational-data-and-store-addresses")
 async def consume_kafka_message(background_tasks: BackgroundTasks):
     tracer = trace.get_tracer(__name__)
 
