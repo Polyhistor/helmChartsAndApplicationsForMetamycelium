@@ -6,7 +6,7 @@ import requests
 import json
 import base64
 import logging
-from utilities import ensure_table_exists, insert_into_db, register_metadata_to_data_lichen, upload_data_to_minio, fetch_all_data_from_sqlite, kafka_utils
+from utilities import ensure_table_exists, insert_into_db, register_metadata_to_data_lichen, upload_data_to_minio, fetch_all_customer_data_from_sqlite, kafka_utils
 from utilities.kafka_rest_proxy_exporter import KafkaRESTProxyExporter
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
@@ -188,7 +188,7 @@ async def publish_domains_data():
 
     with tracer.start_as_current_span("publish_domains_data_span"):
         # Fetch all data from SQLite
-        all_data = fetch_all_data_from_sqlite.fetch_all_data_from_sqlite()
+        all_data = fetch_all_customer_data_from_sqlite.fetch_all_customer_data_from_sqlite()
         bucket_name = 'custom-domain-analytical-data'
         
         logger.info(f"Starting to process {len(all_data)} data objects.")
