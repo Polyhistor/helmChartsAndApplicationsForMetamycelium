@@ -4,7 +4,9 @@ import json
 def save_data_to_sqlite(data_str):
     conn = sqlite3.connect('customer_data.db')
     cursor = conn.cursor()
-    
+
+    print(f"persiting this data: {data_str}")
+
     # Ensure table exists
     cursor.execute("CREATE TABLE IF NOT EXISTS customer_data (id INTEGER PRIMARY KEY, data TEXT)")
 
