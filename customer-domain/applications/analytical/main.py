@@ -5,7 +5,8 @@ from minio import Minio
 import requests
 import json
 import base64
-from utilities import ensure_table_exists, insert_into_db, register_metadata_to_data_lichen, upload_data_to_minio, fetch_all_data_from_sqlite
+import logging
+from utilities import ensure_table_exists, insert_into_db, register_metadata_to_data_lichen, upload_data_to_minio, fetch_all_data_from_sqlite, kafka_utils
 from utilities.kafka_rest_proxy_exporter import KafkaRESTProxyExporter
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
@@ -16,15 +17,20 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 app = FastAPI()
 FastAPIInstrumentor.instrument_app(app)
 
+# Initialize logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Global variables
 SERVICE_NAME = "CUSTOMER_DOMAIN_ANALYTICAL_SERVICE"
 SERVICE_ADDRESS = "http://localhost:8000"
 consumer_base_url = None
+KAFKA_REST_PROXY_URL = "http://localhost/kafka-rest-proxy"
 
 # Setting up the trace provider
 trace.set_tracer_provider(TracerProvider())
 
-kafka_exporter = KafkaRESTProxyExporter(topic_name="telemetry-data", rest_proxy_url="http://localhost/kafka-rest-proxy", service_name=SERVICE_NAME, service_address=SERVICE_ADDRESS)
+kafka_exporter = KafkaRESTProxyExporter(topic_name="telemetry-data", rest_proxy_url=KAFKA_REST_PROXY_URL, service_name=SERVICE_NAME, service_address=SERVICE_ADDRESS)
 span_processor = BatchSpanProcessor(kafka_exporter)
 trace.get_tracer_provider().add_span_processor(span_processor)
 
@@ -33,22 +39,22 @@ tracer = trace.get_tracer(__name__)
 
 # Storage info dictionary
 storage_info = {}
-minio_url = "localhost:9001"
-minio_acces_key = "minioadmin"
-minio_secret_key = "minioadmin"
+MINIO_BASE_URL = "localhost:9001"
+MINIO_ACCESS_KEY = "minioadmin"
+MINIO_SECRET_KEY = "minioadmin"
 
 # Initialize the Minio client
 minio_client = Minio(
-    minio_url,
-    access_key=minio_acces_key,
-    secret_key=minio_secret_key,
+    MINIO_BASE_URL,
+    access_key=MINIO_ACCESS_KEY,
+    secret_key=MINIO_SECRET_KEY,
     secure=False
 )
 
 
 @app.on_event("startup")
 async def startup_event():
-    url = "http://localhost/kafka-rest-proxy/consumers/customer-domain-operational-data-consumer/"
+    url = f"{KAFKA_REST_PROXY_URL}/consumers/customer-domain-operational-data-consumer/"
     headers = {
         'Content-Type': 'application/vnd.kafka.v2+json',
     }
@@ -101,6 +107,8 @@ async def shutdown_event():
 async def main_function(): 
     return "welcome to the customer domain analytical service"  
 
+
+# this endpoint should only run after the startup event has succesfully run
 @app.get("/subscribe-to-operational-data")
 async def consume_kafka_message(background_tasks: BackgroundTasks):
     tracer = trace.get_tracer(__name__)
@@ -141,7 +149,7 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
 
                         # If distributedStorageAddress is empty, skip the storage
                         if not storage_info["distributedStorageAddress"]:
-                            print("Skipping storage to SQLite since distributedStorageAddress is empty.")
+                            print("Skipping storage to SQLite since distributedStorageAddress is empty.") 
                             continue
 
                         # Insert the storage info into the SQLite database
@@ -163,7 +171,7 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
 async def retrieve_and_save_data():
     global storage_info
     print(storage_info)
-
+ 
     if not storage_info:
         raise HTTPException(404, "Storage info not found")
 
@@ -176,16 +184,45 @@ async def retrieve_and_save_data():
 
 @app.get('/publish-domains-data')
 async def publish_domains_data():
-    # Fetch all data from SQLite
-    all_data = fetch_all_data_from_sqlite.fetch_all_data_from_sqlite()
+    tracer = trace.get_tracer(__name__)
 
-    # Convert the data to a suitable format, say JSON
-    data_json = json.dumps(all_data)
+    with tracer.start_as_current_span("publish_domains_data_span"):
+        # Fetch all data from SQLite
+        all_data = fetch_all_data_from_sqlite.fetch_all_data_from_sqlite()
+        bucket_name = 'custom-domain-analytical-data'
+        
+        logger.info(f"Starting to process {len(all_data)} data objects.")
+        
+        for index, data_obj in enumerate(all_data):
+            with tracer.start_as_current_span(f"process_data_object_{index}"):
+                try:
+                    # Convert individual data object to JSON format
+                    data_json = json.dumps(data_obj)
 
-    # Upload to Minio
-    bucket_name = 'custom-domain-analytical-data'
-    try:
-        upload_data_to_minio.upload_data_to_minio(bucket_name, data_json)
-        return {"status": "Data successfully fetched from SQLite and saved to Minio"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred: {e}")
+                    # Upload to Minio
+                    object_name = f"data_object_{index}.json"
+                    upload_data_to_minio.upload_data_to_minio(bucket_name, data_json, object_name, MINIO_BASE_URL, MINIO_ACCESS_KEY, MINIO_SECRET_KEY)
+
+                    # Notify Kafka about this individual object
+                    kafka_utils.post_to_kafka_topic(KAFKA_REST_PROXY_URL, 'customer-domain-data', {
+                        "status": "data_ready",
+                        "data_location": f"{MINIO_BASE_URL}/{bucket_name}/{object_name}",
+                        "object_id": index  # or any unique identifier for the data object
+                    })
+
+                    logger.info(f"Processed and saved object {index} to Minio.")
+
+                except Exception as e:
+                    with tracer.start_as_current_span("error_handling"):
+                        # Notify Kafka of error for this specific object
+                        kafka_utils.post_to_kafka_topic(KAFKA_REST_PROXY_URL, 'customer-domain-data-error', {
+                            "status": "processing_failed",
+                            "error": str(e),
+                            "object_id": index  # or any unique identifier for the data object
+                        })
+
+                        logger.error(f"An error occurred while processing object {index}: {e}")
+                        raise HTTPException(status_code=500, detail=f"An error occurred while processing object {index}: {e}")
+
+    logger.info(f"Finished processing {len(all_data)} data objects and saving to Minio.")
+    return {"status": f"Processed {len(all_data)} data objects and saved to Minio."}
