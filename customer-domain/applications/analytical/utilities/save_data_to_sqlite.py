@@ -1,20 +1,32 @@
 import sqlite3
 import json
+import hashlib
+
+def compute_hash(data_str):
+    return hashlib.sha256(data_str.encode('utf-8')).hexdigest()
 
 def save_data_to_sqlite(data_str):
     conn = sqlite3.connect('customer_data.db')
     cursor = conn.cursor()
 
-    print(f"persiting this data: {data_str}")
+    # Compute the hash of the data
+    data_hash = compute_hash(data_str)
 
     # Ensure table exists
-    cursor.execute("CREATE TABLE IF NOT EXISTS customer_data (id INTEGER PRIMARY KEY, data TEXT)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS customer_data (id INTEGER PRIMARY KEY, data TEXT, data_hash TEXT UNIQUE)")
 
-    # Store the entire JSON string as one record
-    try:
-        cursor.execute("INSERT INTO customer_data (data) VALUES (?)", (data_str,))
-    except Exception as e:
-        print(f"Error while inserting data into SQLite: {e}")
+    # Check if data_hash already exists
+    cursor.execute("SELECT * FROM customer_data WHERE data_hash=?", (data_hash,))
+    existing_data = cursor.fetchone()
+
+    # If the data does not already exist, save it
+    if not existing_data:
+        try:
+            cursor.execute("INSERT INTO customer_data (data, data_hash) VALUES (?, ?)", (data_str, data_hash))
+        except Exception as e:
+            print(f"Error while inserting data into SQLite: {e}")
+    else:
+        print(f"Data with hash {data_hash} already exists. Skipping.")
 
     conn.commit()
     conn.close()

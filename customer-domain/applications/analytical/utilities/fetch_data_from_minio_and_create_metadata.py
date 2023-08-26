@@ -15,6 +15,8 @@ def fetch_data_from_minio_and_create_metadata():
     print(f"Storage Info: {all_storage_info}")
     print(f'Total number of objects to receive: {len(all_storage_info)}')
 
+    print(all_storage_info)
+
     for storage_info in all_storage_info:
         print(f"Fetching data from Minio for storage: {storage_info}...")
         data_str = fetch_data_from_minio.fetch_data_from_minio(storage_info)
