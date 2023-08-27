@@ -6,6 +6,7 @@ import requests
 import json
 import base64
 import logging
+import time 
 from utilities import ensure_table_exists, insert_into_db, register_metadata_to_data_lichen, upload_data_to_minio, fetch_all_customer_data_from_sqlite, kafka_utils
 from utilities.kafka_rest_proxy_exporter import KafkaRESTProxyExporter
 from opentelemetry import trace
@@ -203,11 +204,15 @@ async def publish_domains_data():
                     object_name = f"data_object_{index}.json"
                     upload_data_to_minio.upload_data_to_minio(bucket_name, data_json, object_name, MINIO_BASE_URL, MINIO_ACCESS_KEY, MINIO_SECRET_KEY)
 
+                    # Get the current timestamp (you can also use datetime for more granular timestamp details)
+                    current_timestamp = time.time()
+
                     # Notify Kafka about this individual object
                     kafka_utils.post_to_kafka_topic(KAFKA_REST_PROXY_URL, 'customer-domain-data', {
                         "status": "data_ready",
                         "data_location": f"{MINIO_BASE_URL}/{bucket_name}/{object_name}",
-                        "object_id": index  # or any unique identifier for the data object
+                        "object_id": index,  # or any unique identifier for the data object
+                        "timestamp": current_timestamp
                     })
 
                     logger.info(f"Processed and saved object {index} to Minio.")
@@ -218,7 +223,8 @@ async def publish_domains_data():
                         kafka_utils.post_to_kafka_topic(KAFKA_REST_PROXY_URL, 'customer-domain-data-error', {
                             "status": "processing_failed",
                             "error": str(e),
-                            "object_id": index  # or any unique identifier for the data object
+                            "object_id": index,  # or any unique identifier for the data object
+                            "timestamp": current_timestamp
                         })
 
                         logger.error(f"An error occurred while processing object {index}: {e}")
