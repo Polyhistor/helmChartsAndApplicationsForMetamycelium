@@ -12,10 +12,13 @@ from prometheus_client import Counter, start_http_server, generate_latest, CONTE
 SERVICE_NAME = "TELEMETRY_PROCESSOR_SERVICE"
 SERVICE_ADDRESS = "http://localhost:8008"
 
-# Define a counter metric
+# Definining Metrics
 kafka_records_consumed = Counter('kafka_records_consumed_total', 'Total Kafka records consumed')
-# Create a histogram to measure the time it takes to process Kafka messages
+kafka_data_ingested_records = Counter('kafka_data_ingested_records_total', 'Number of Kafka records ingested')
+kafka_data_ingested_bytes = Counter('kafka_data_ingested_bytes_total', 'Number of bytes ingested from Kafka records')
+
 KAFKA_PROCESSING_TIME = Histogram('kafka_processing_duration_seconds', 'Time taken for processing kafka messages')
+ingestion_latency = Histogram('kafka_ingestion_latency_seconds', 'Time taken from data creation to ingestion in seconds')
 
 
 app = FastAPI()
@@ -103,6 +106,8 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
 
                 # Increment the counter for each record consumed
                 kafka_records_consumed.inc()
+                kafka_data_ingested_records.inc()
+                kafka_data_ingested_bytes.inc(len(json.dumps(record)))
 
     background_tasks.add_task(consume_records)
     return {"status": "Consuming records in the background"}
