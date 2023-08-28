@@ -10,9 +10,8 @@ from sqlite3 import Error
 from io import StringIO
 import csv
 import time 
-from utilities import ensure_table_exists, insert_into_db
+from utilities import ensure_table_exists, insert_into_db, fetch_data_from_minio, create_metadata
 from datetime import datetime
-import uuid
 
 app = FastAPI()
 
@@ -21,15 +20,15 @@ SERVICE_ADDRESS = "http://localhost:8000"
 consumer_base_url = None
 # Storage info dictionary
 storage_info = {}
-minio_url = "localhost:9001"
-minio_acces_key = "minioadmin"
-minio_secret_key = "minioadmin"
+MINIO_URL = "localhost:9001"
+MINIO_ACCESS_KEY = "minioadmin"
+MINIO_SECRET_KEY = "minioadmin"
 
 # Initialize the Minio client
 minio_client = Minio(
-    minio_url,
-    access_key=minio_acces_key,
-    secret_key=minio_secret_key,
+    MINIO_URL,
+    access_key=MINIO_ACCESS_KEY,
+    secret_key=MINIO_SECRET_KEY,
     secure=False
 )
 
@@ -134,20 +133,8 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
     return {"status": "Consuming records in the background"}
 
 
-def fetch_data_from_minio():
-    minio_client = Minio(
-        storage_info["distributedStorageAddress"],
-        access_key=storage_info["minio_access_key"],
-        secret_key=storage_info["minio_secret_key"],
-        secure=False
-    )
-    data = minio_client.get_object(storage_info["bucket_name"], storage_info["object_name"])
-    data_str = ''
-    for d in data.stream(32*1024):
-        data_str += d.decode()
-    return data_str
 
-def save_data_to_sqlite(data_str):
+def save_data_to_sqlite(data_str, table_to_save_data_to):
     conn = sqlite3.connect('weather_data.db')
     cursor = conn.cursor()
     data_file = StringIO(data_str)
@@ -160,26 +147,6 @@ def save_data_to_sqlite(data_str):
     conn.commit()
     conn.close()
 
-def create_metadata(actual_time, processing_duration, data_str):
-    total_rows = len(data_str.split('\n'))
-    missing_data_points = data_str.count(', ,') + data_str.count(',,')
-    
-    # Mocking the validity and accuracy for the experiment
-    completeness = 100 * (total_rows - missing_data_points) / total_rows
-    validity = 100 * (total_rows - missing_data_points) / total_rows
-    accuracy = 100 - (missing_data_points / total_rows * 100)
-
-    return {
-        "serviceAddress": SERVICE_ADDRESS,
-        "serviceName": "Weather domain data",
-        "uniqueIdentifier": str(uuid.uuid4()),
-        "completeness": completeness,
-        "validity": validity,
-        "accuracy": accuracy,
-        "actualTime": actual_time,  # when the data became valid or was created
-        "processingTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # when the data was ingested or updated
-        "processingDuration": f"{processing_duration:.2f} seconds"  # how long it took to process the data
-    }
 
 def fetch_data_from_minio_and_save(actual_time):
     start_time = time.time()
@@ -187,11 +154,12 @@ def fetch_data_from_minio_and_save(actual_time):
     save_data_to_sqlite(data_str)
     processing_duration = time.time() - start_time
 
-    metadata = create_metadata(actual_time, processing_duration, data_str)
+    metadata = create_metadata.create_metadata(actual_time, processing_duration, data_str, SERVICE_ADDRESS)
     print(metadata)
 
     # Send metadata to Data Lichen
     response = requests.post('http://localhost:3000/register', json=metadata)
+
     if response.status_code == 200:
         print(response.json()['message'])
     else:
@@ -216,4 +184,44 @@ async def retrieve_and_save_data():
 
 
 
+@app.get("/retrieve-data-from-customer-domain")
+async def retrieve_data_from_customer_domain(background_tasks: BackgroundTasks):
+
+    def process_records_from_kafka_topic():
+        # 1. Listen to the Kafka topic for a new message
+        headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
+        response = requests.get(consumer_base_url + "/records", headers=headers)
+        if response.status_code != 200:
+            print(f"Failed to retrieve records from Kafka topic: {response.text}")
+            return
+
+        records = response.json()
+        for record in records:
+            decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
+            value_obj = json.loads(decoded_value_json)
+
+            # 2. Extract Minio storage information
+            distributed_storage_address = value_obj.get('data_location')
+            minio_access_key = MINIO_ACCESS_KEY
+            minio_secret_key = MINIO_SECRET_KEY
+            bucket_name = value_obj.get('bucket_name', 'custom-domain-analytical-data')
+            object_name = value_obj.get('object_name', f"data_object_{value_obj.get('object_id')}.json")
+
+            # 3. Retrieve data from Minio using the storage info
+            data_str = fetch_data_from_minio.fetch_data_from_minio(
+                distributed_storage_address,
+                minio_access_key,
+                minio_secret_key,
+                bucket_name,
+                object_name
+            )
+
+            # 4. Save this data to SQLite
+            save_data_to_sqlite(data_str)
+        
+        print(f"Processed {len(records)} records from Kafka topic and stored in SQLite.")
+
+    # Use background tasks to process records
+    background_tasks.add_task(process_records_from_kafka_topic)
+    return {"status": "Started processing records from Kafka topic in the background."}
 
