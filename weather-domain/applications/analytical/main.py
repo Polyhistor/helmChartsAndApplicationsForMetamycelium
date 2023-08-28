@@ -52,6 +52,7 @@ async def startup_event():
     response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
     
     global operational_data_consumer_base_url
+    
     operational_data_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
     
     subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(operational_data_consumer_base_url, ["domain-weather-operational-data"])
@@ -153,8 +154,8 @@ async def retrieve_data_from_customer_domain(background_tasks: BackgroundTasks):
         # 1. Listen to the Kafka topic for a new message
         headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
 
-        print(consumer_base_url)
-        response = requests.get(consumer_base_url + "/records", headers=headers)
+        print(customer_domain_data_consumer_base_url)
+        response = requests.get(customer_domain_data_consumer_base_url + "/records", headers=headers)
         if response.status_code != 200:
             print(f"Failed to retrieve records from Kafka topic: {response.text}")
             return
