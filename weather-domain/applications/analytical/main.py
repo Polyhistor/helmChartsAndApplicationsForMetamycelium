@@ -5,19 +5,19 @@ from minio import Minio
 import requests
 import json
 import base64
-import sqlite3
 from sqlite3 import Error
 from io import StringIO
-import csv
-import time 
-from utilities import ensure_table_exists, insert_into_db, fetch_data_from_minio, fetch_data_from_minio_and_save, create_metadata, save_data_to_sqlite
+from utilities import ensure_table_exists, insert_into_db, fetch_data_from_minio, fetch_data_from_minio_and_save, create_metadata, save_data_to_sqlite, subscribe_to_kafka_consumer, create_kafka_consumer
 from datetime import datetime
 
 app = FastAPI()
 
-SERVICE_ADDRESS = "http://localhost:8000"
+SERVICE_ADDRESS = "http://localhost:8005"
 
-consumer_base_url = None
+# Create two global variables to store the base URLs of each consumer
+operational_data_consumer_base_url = None
+customer_domain_data_consumer_base_url = None
+
 # Storage info dictionary
 storage_info = {}
 MINIO_URL = "localhost:9001"
@@ -35,43 +35,36 @@ minio_client = Minio(
 
 @app.on_event("startup")
 async def startup_event():
-    url = "http://localhost/kafka-rest-proxy/consumers/weather-domain-operational-data-consumer/"
+    # Shared configurations
     headers = {
         'Content-Type': 'application/vnd.kafka.v2+json',
     }
+    
     data = {
-        "name": "operational-data-consumer",
         "format": "binary",
         "auto.offset.reset": "earliest",
         "auto.commit.enable": "false"
     }
-    try:
-        # attemping to create a consumer 
-        response = requests.post(url, headers=headers, data=json.dumps(data))
-        # will raise an HTTPError if the status code is 4xx or 5xx
-        response.raise_for_status()
-    except requests.exceptions.HTTPError as e:
-        if response.status_code == 409:
-            print("Kafka consumer already exists. Proceeding...")
-        else:
-            raise Exception("Failed to create Kafka consumer: " + str(e))
-    else:
-        print("Kafka consumer created successfully")
-        print(response.json())
-        consumer_info = response.json()
-        print("Consumer instance URI: " + consumer_info['base_uri'])
-        global consumer_base_url
-        consumer_base_url = consumer_info['base_uri'].replace(
-            'http://', 'http://localhost/')
 
-        # Subscribe the consumer to the topic
-        url = consumer_base_url + "/subscription"
-        headers = {'Content-Type': 'application/vnd.kafka.v2+json'}
-        data = {"topics": ["domain-weather-operational-data"]}  # Adjusted the topic name here
-        response = requests.post(url, headers=headers, data=json.dumps(data))
-        if response.status_code != 204:
-            raise Exception(
-                "Failed to subscribe consumer to topic: " + response.text)
+    # Consumer for domain-weather-operational-data
+    url = "http://localhost/kafka-rest-proxy/consumers/weather-domain-operational-data-consumer/"
+    data["name"] = "weather-domain-operational-data-consumer-instance"
+    response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
+    
+    global operational_data_consumer_base_url
+    operational_data_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
+    
+    subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(operational_data_consumer_base_url, ["domain-weather-operational-data"])
+
+    # Consumer for customer-domain-data
+    url = "http://localhost/kafka-rest-proxy/consumers/customer-domain-data-consumer/"
+    data["name"] = "customer-domain-data-consumer-instance"
+    response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
+
+    global customer_domain_data_consumer_base_url
+    customer_domain_data_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
+    
+    subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(customer_domain_data_consumer_base_url, ["customer-domain-data"])
 
 
 @app.on_event("shutdown")
@@ -133,21 +126,23 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
     return {"status": "Consuming records in the background"}
 
 
-@app.get("/retrieve_and_save_data")
-async def retrieve_and_save_data():
-    global storage_info
-    print(storage_info)
-    # Determine the actual time as the current timestamp
-    actual_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+# can be uncommented at some point later, but for now it's not necessary
 
-    if not storage_info:
-        raise HTTPException(404, "Storage info not found")
+# @app.get("/retrieve_and_save_data")
+# async def retrieve_and_save_data():
+#     global storage_info
+#     print(storage_info)
+#     # Determine the actual time as the current timestamp
+#     actual_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    try:
-        fetch_data_from_minio_and_save.fetch_data_from_minio_and_save(actual_time)
-        return {"status": "Data successfully retrieved and saved to 'weather_data.db'"}
-    except ResponseError as err:
-        raise HTTPException(status_code=500, detail=f"An error occurred while fetching the data: {err}")
+#     if not storage_info:
+#         raise HTTPException(404, "Storage info not found")
+
+#     try:
+#         fetch_data_from_minio_and_save.fetch_data_from_minio_and_save(actual_time)
+#         return {"status": "Data successfully retrieved and saved to 'weather_data.db'"}
+#     except ResponseError as err:
+#         raise HTTPException(status_code=500, detail=f"An error occurred while fetching the data: {err}")
 
 
 
@@ -157,6 +152,8 @@ async def retrieve_data_from_customer_domain(background_tasks: BackgroundTasks):
     def process_records_from_kafka_topic():
         # 1. Listen to the Kafka topic for a new message
         headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
+
+        print(consumer_base_url)
         response = requests.get(consumer_base_url + "/records", headers=headers)
         if response.status_code != 200:
             print(f"Failed to retrieve records from Kafka topic: {response.text}")
@@ -184,7 +181,7 @@ async def retrieve_data_from_customer_domain(background_tasks: BackgroundTasks):
             )
 
             # 4. Save this data to SQLite
-            save_data_to_sqlite.save_data_to_sqlite(data_str)
+            save_data_to_sqlite.save_data_to_sqlite(data_str, 'weather_domain.db')
         
         print(f"Processed {len(records)} records from Kafka topic and stored in SQLite.")
 
