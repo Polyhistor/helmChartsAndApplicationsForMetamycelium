@@ -50,6 +50,8 @@ async def startup_event():
     url = "http://localhost/kafka-rest-proxy/consumers/weather-domain-operational-data-consumer/"
     data["name"] = "weather-domain-operational-data-consumer-instance"
     response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
+
+    print(response)
     
     global operational_data_consumer_base_url
     
@@ -70,9 +72,15 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    url = consumer_base_url
-    response = requests.delete(url)
-    print(f"Consumer deleted with status code {response.status_code}")
+    global operational_data_consumer_base_url
+    operational_data_consumer_url = operational_data_consumer_base_url
+    response = requests.delete(operational_data_consumer_url)
+    print(f"Operational data consumer deleted with status code {response.status_code}")
+
+    global customer_domain_data_consumer_base_url
+    customer_domain_data_url = customer_domain_data_consumer_base_url
+    response = requests.delete(customer_domain_data_url)
+    print(f"Domain data consumer deleted with status code {response.status_code}")
 
 
 @app.get("/")
@@ -81,11 +89,13 @@ async def main_function():
 
 @app.get("/subscribe-to-operational-data")
 async def consume_kafka_message(background_tasks: BackgroundTasks):
-    if consumer_base_url is None:
+    global operational_data_consumer_base_url
+
+    if operational_data_consumer_base_url is None:
         return {"status": "Consumer has not been initialized. Please try again later."}
 
-    print(consumer_base_url)
-    url = consumer_base_url + "/records"
+    print(operational_data_consumer_base_url)
+    url = operational_data_consumer_base_url + "/records"
     headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
 
     ensure_table_exists.ensure_table_exists()
@@ -125,26 +135,6 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
 
     background_tasks.add_task(consume_records)
     return {"status": "Consuming records in the background"}
-
-
-# can be uncommented at some point later, but for now it's not necessary
-
-# @app.get("/retrieve_and_save_data")
-# async def retrieve_and_save_data():
-#     global storage_info
-#     print(storage_info)
-#     # Determine the actual time as the current timestamp
-#     actual_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-#     if not storage_info:
-#         raise HTTPException(404, "Storage info not found")
-
-#     try:
-#         fetch_data_from_minio_and_save.fetch_data_from_minio_and_save(actual_time)
-#         return {"status": "Data successfully retrieved and saved to 'weather_data.db'"}
-#     except ResponseError as err:
-#         raise HTTPException(status_code=500, detail=f"An error occurred while fetching the data: {err}")
-
 
 
 @app.get("/retrieve-data-from-customer-domain")
@@ -189,4 +179,8 @@ async def retrieve_data_from_customer_domain(background_tasks: BackgroundTasks):
     # Use background tasks to process records
     background_tasks.add_task(process_records_from_kafka_topic)
     return {"status": "Started processing records from Kafka topic in the background."}
+
+
+
+
 
