@@ -1,11 +1,19 @@
-import requests 
+import requests
 import json
 
 def subscribe_to_kafka_consumer(base_url, topics):
-    url = base_url + "/subscription"
+    url = f"{base_url}/subscription"
     headers = {'Content-Type': 'application/vnd.kafka.v2+json'}
     data = {"topics": topics}
-    
-    response = requests.post(url, headers=headers, data=json.dumps(data))
-    if response.status_code != 204:
-        raise Exception("Failed to subscribe consumer to topic: " + response.text)
+
+    try:
+        response = requests.post(url, headers=headers, data=json.dumps(data), timeout=10)
+        response.raise_for_status()  # Will raise an HTTPError if the HTTP request returned an unsuccessful status code
+
+        if response.status_code == 204:
+            print(f"Successfully subscribed to topics: {', '.join(topics)}")
+        else:
+            print(f"Unexpected status code {response.status_code}: {response.text}")
+
+    except requests.RequestException as e:
+        raise Exception(f"Failed to subscribe consumer to topics {', '.join(topics)}: {str(e)}")

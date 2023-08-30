@@ -66,6 +66,8 @@ async def startup_event():
 
     global customer_domain_data_consumer_base_url
     customer_domain_data_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
+
+    print(customer_domain_data_consumer_base_url)
     
     subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(customer_domain_data_consumer_base_url, ["customer-domain-data"])
 
@@ -146,6 +148,7 @@ async def retrieve_data_from_customer_domain(background_tasks: BackgroundTasks):
 
         print(customer_domain_data_consumer_base_url)
         response = requests.get(customer_domain_data_consumer_base_url + "/records", headers=headers)
+        
         if response.status_code != 200:
             print(f"Failed to retrieve records from Kafka topic: {response.text}")
             return
@@ -161,6 +164,8 @@ async def retrieve_data_from_customer_domain(background_tasks: BackgroundTasks):
             minio_secret_key = MINIO_SECRET_KEY
             bucket_name = value_obj.get('bucket_name', 'custom-domain-analytical-data')
             object_name = value_obj.get('object_name', f"data_object_{value_obj.get('object_id')}.json")
+            
+            print(distributed_storage_address)
 
             # 3. Retrieve data from Minio using the storage info
             data_str = fetch_data_from_minio.fetch_data_from_minio(
@@ -170,6 +175,8 @@ async def retrieve_data_from_customer_domain(background_tasks: BackgroundTasks):
                 bucket_name,
                 object_name
             )
+
+            print(data_str)
 
             # 4. Save this data to SQLite
             save_data_to_sqlite.save_data_to_sqlite(data_str, 'weather_domain.db')
