@@ -50,8 +50,6 @@ async def startup_event():
     url = "http://localhost/kafka-rest-proxy/consumers/weather-domain-operational-data-consumer/"
     data["name"] = "weather-domain-operational-data-consumer-instance"
     response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
-
-    print(response)
     
     global operational_data_consumer_base_url
     
@@ -67,8 +65,6 @@ async def startup_event():
     global customer_domain_data_consumer_base_url
     customer_domain_data_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
 
-    print(customer_domain_data_consumer_base_url)
-    
     subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(customer_domain_data_consumer_base_url, ["customer-domain-data"])
 
 
@@ -96,7 +92,6 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
     if operational_data_consumer_base_url is None:
         return {"status": "Consumer has not been initialized. Please try again later."}
 
-    print(operational_data_consumer_base_url)
     url = operational_data_consumer_base_url + "/records"
     headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
 
@@ -146,7 +141,6 @@ async def retrieve_data_from_customer_domain(background_tasks: BackgroundTasks):
         # 1. Listen to the Kafka topic for a new message
         headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
 
-        print(customer_domain_data_consumer_base_url)
         response = requests.get(customer_domain_data_consumer_base_url + "/records", headers=headers)
         
         if response.status_code != 200:
@@ -164,8 +158,6 @@ async def retrieve_data_from_customer_domain(background_tasks: BackgroundTasks):
             minio_secret_key = MINIO_SECRET_KEY
             bucket_name = value_obj.get('bucket_name', 'custom-domain-analytical-data')
             object_name = value_obj.get('object_name', f"data_object_{value_obj.get('object_id')}.json")
-            
-            print(distributed_storage_address)
 
             # 3. Retrieve data from Minio using the storage info
             data_str = fetch_data_from_minio.fetch_data_from_minio(
@@ -175,8 +167,6 @@ async def retrieve_data_from_customer_domain(background_tasks: BackgroundTasks):
                 bucket_name,
                 object_name
             )
-
-            print(data_str)
 
             # 4. Save this data to SQLite
             save_data_to_sqlite.save_data_to_sqlite(data_str, 'weather_domain.db')

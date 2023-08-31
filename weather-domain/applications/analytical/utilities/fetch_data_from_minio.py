@@ -1,5 +1,4 @@
 from minio import Minio
-from urllib.parse import urlparse
 
 def fetch_data_from_minio(distributed_storage_address, minio_access_key, minio_secret_key, bucket_name, object_name):
 
@@ -8,7 +7,7 @@ def fetch_data_from_minio(distributed_storage_address, minio_access_key, minio_s
         distributed_storage_address,
         access_key=minio_access_key,
         secret_key=minio_secret_key,
-        secure=False
+        secure=False    
     )
 
     data = minio_client.get_object(bucket_name, object_name)

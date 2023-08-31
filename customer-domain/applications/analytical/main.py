@@ -210,7 +210,7 @@ async def publish_domains_data():
                     # Notify Kafka about this individual object
                     kafka_utils.post_to_kafka_topic(KAFKA_REST_PROXY_URL, 'customer-domain-data', {
                         "status": "data_ready",
-                        "data_location": f"{MINIO_BASE_URL}/{bucket_name}/{object_name}",
+                        "data_location": f"{MINIO_BASE_URL}",
                         "object_id": index,  # or any unique identifier for the data object
                         "timestamp": current_timestamp
                     })
