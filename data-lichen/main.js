@@ -3,7 +3,10 @@ const bodyParser = require('body-parser');
 const sqlite3 = require('sqlite3').verbose();
 const app = express();
 const path = require('path')
+const axios = require('axios');
 
+const KAFKA_PROXY_URL = 'http://localhost/kafka-rest-proxy';
+const KAFKA_TOPIC = 'data-discovery';
 
 app.use(bodyParser.json());
 app.use(express.static('public'));
@@ -68,4 +71,37 @@ app.get('/metadata', async (req, res) => {
 
 app.listen(3001, () => {
     console.log('Server is running on port 3001');
+});
+
+
+app.get('/dispatch-metadata', async (req, res) => {
+    try {
+        // 1. Consume messages from the Kafka topic using Kafka REST Proxy.
+        const consumeResponse = await axios.post(`${KAFKA_PROXY_URL}/consumers/my_consumer_group/instances/my_consumer/records`, {
+            name: 'my_consumer',
+            format: 'json',
+            auto.offset.reset: 'earliest'
+        });
+
+        // Here, you can parse the consumeResponse if needed. For this example, we'll assume 
+        // that any message in the topic indicates that metadata should be fetched.
+
+        if (consumeResponse.data && consumeResponse.data.length > 0) {
+            // 2. Fetch metadata from SQLite
+            let sql = `SELECT DISTINCT * FROM metadata`;  // Ensure unique services
+            db.all(sql, [], (err, rows) => {
+                if (err) {
+                    throw err;
+                }
+                // 3. Send the metadata back as a response
+                res.json(rows);
+            });
+        } else {
+            res.json({ message: 'No new messages in the Kafka topic' });
+        }
+
+    } catch (error) {
+        console.error('Error fetching from Kafka or database:', error.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
