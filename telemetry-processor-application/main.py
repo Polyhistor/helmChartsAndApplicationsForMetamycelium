@@ -84,71 +84,56 @@ async def shutdown_event():
 async def main_function(): 
     return "welcome to the telemetry processing service"
 
+
 @app.get("/subscribe-to-telemetry-data")
 async def consume_kafka_message(background_tasks: BackgroundTasks):
     if consumer_base_url is None:
         return {"status": "Consumer has not been initialized. Please try again later."}
 
+    url = consumer_base_url + "/records"
+    headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
+
     @KAFKA_PROCESSING_TIME.time()
     def consume_records():
-        url = consumer_base_url + "/records"
-        headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
-        try:
-            response = requests.get(url, headers=headers)
-            response.raise_for_status()
-            records = response.json()
+        while True:
+            try:
+                response = requests.get(url, headers=headers)
+                response.raise_for_status()
+                records = response.json()
 
-            for record in records:
-                publish_time = record.get("timestamp", time.time())  # defaulting to current time if no timestamp
-                current_time = time.time()
+                if not records:  # No more records left
+                    break
 
-                # Calculating ingestion latency
-                latency = current_time - publish_time
-                ingestion_latency.observe(latency)
+                for record in records:
+                    publish_time = record.get("timestamp", time.time())  # defaulting to current time if no timestamp
+                    current_time = time.time()
 
-                decoded_key = base64.b64decode(record['key']).decode('utf-8') if record['key'] else None
-                decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
-                value_obj = json.loads(decoded_value_json)
+                    # Calculating ingestion latency
+                    latency = current_time - publish_time
+                    ingestion_latency.observe(latency)
 
-                # Data ingestion metrics
-                kafka_records_consumed.inc()
-                kafka_data_ingested_records.inc()
-                kafka_data_ingested_bytes.inc(len(json.dumps(record)))
+                    decoded_key = base64.b64decode(record['key']).decode('utf-8') if record['key'] else None
+                    decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
+                    value_obj = json.loads(decoded_value_json)
 
-                print(f"Consumed record with key {decoded_key} and value {value_obj}")
+                    # Data ingestion metrics
+                    kafka_records_consumed.inc()
+                    kafka_data_ingested_records.inc()
+                    kafka_data_ingested_bytes.inc(len(json.dumps(record)))
 
-            # After all records in the batch are processed, commit offsets
-            commit_offsets()
+                    print(f"Consumed record with key {decoded_key} and value {value_obj}")
 
-        except Exception as e:
-            kafka_ingestion_errors.inc()
-            raise Exception(f"Error while consuming data: {str(e)}")
+            except Exception as e:
+                kafka_ingestion_errors.inc()
+                raise Exception(f"Error while consuming data: {str(e)}")
 
-        # CPU & Memory Utilization
-        cpu_utilization_gauge.set(psutil.cpu_percent())
-        memory_utilization_gauge.set(psutil.virtual_memory().used)
-
-    def commit_offsets():
-        url = consumer_base_url + "/offsets"
-        headers = {'Content-Type': 'application/vnd.kafka.v2+json'}
-        # Here, you would define the payload for committing offsets.
-        # This would typically be derived from the last record's offset you processed from the batch.
-        # For the sake of this example, I'm creating a placeholder payload.
-        data = {
-            "offsets": [{
-                "topic": "telemetry-data",
-                "partition": 0,
-                "offset": 1000  # This is a placeholder. Replace it with the appropriate offset value.
-            }]
-        }
-        try:
-            response = requests.post(url, headers=headers, data=json.dumps(data))
-            response.raise_for_status()
-        except requests.exceptions.HTTPError as e:
-            print(f"Failed to commit offsets: {str(e)}")
+            # CPU & Memory Utilization
+            cpu_utilization_gauge.set(psutil.cpu_percent())
+            memory_utilization_gauge.set(psutil.virtual_memory().used)
 
     background_tasks.add_task(consume_records)
     return {"status": "Consuming records in the background"}
+
 
 @app.get("/metrics")
 async def get_metrics():
