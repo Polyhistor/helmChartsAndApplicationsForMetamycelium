@@ -40,7 +40,7 @@ async def startup_event():
         "name": "telemetry-data-consumer",
         "format": "binary",
         "auto.offset.reset": "earliest",
-        "auto.commit.enable": "false"
+        "auto.commit.enable": "true"
     } 
     try:
         # attemping to create a consumer 
@@ -89,12 +89,10 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
     if consumer_base_url is None:
         return {"status": "Consumer has not been initialized. Please try again later."}
 
-    print(consumer_base_url)
-    url = consumer_base_url + "/records"
-    headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
-
     @KAFKA_PROCESSING_TIME.time()
     def consume_records():
+        url = consumer_base_url + "/records"
+        headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
         try:
             response = requests.get(url, headers=headers)
             response.raise_for_status()
@@ -119,6 +117,9 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
 
                 print(f"Consumed record with key {decoded_key} and value {value_obj}")
 
+            # After all records in the batch are processed, commit offsets
+            commit_offsets()
+
         except Exception as e:
             kafka_ingestion_errors.inc()
             raise Exception(f"Error while consuming data: {str(e)}")
@@ -127,9 +128,27 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
         cpu_utilization_gauge.set(psutil.cpu_percent())
         memory_utilization_gauge.set(psutil.virtual_memory().used)
 
+    def commit_offsets():
+        url = consumer_base_url + "/offsets"
+        headers = {'Content-Type': 'application/vnd.kafka.v2+json'}
+        # Here, you would define the payload for committing offsets.
+        # This would typically be derived from the last record's offset you processed from the batch.
+        # For the sake of this example, I'm creating a placeholder payload.
+        data = {
+            "offsets": [{
+                "topic": "telemetry-data",
+                "partition": 0,
+                "offset": 1000  # This is a placeholder. Replace it with the appropriate offset value.
+            }]
+        }
+        try:
+            response = requests.post(url, headers=headers, data=json.dumps(data))
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            print(f"Failed to commit offsets: {str(e)}")
+
     background_tasks.add_task(consume_records)
     return {"status": "Consuming records in the background"}
-
 
 @app.get("/metrics")
 async def get_metrics():

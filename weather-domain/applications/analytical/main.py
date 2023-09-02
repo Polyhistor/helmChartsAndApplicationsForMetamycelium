@@ -17,6 +17,7 @@ SERVICE_ADDRESS = "http://localhost:8005"
 # Create two global variables to store the base URLs of each consumer
 operational_data_consumer_base_url = None
 customer_domain_data_consumer_base_url = None
+data_discovery_consumer_base_url = None
 
 # Storage info dictionary
 storage_info = {}
@@ -66,6 +67,16 @@ async def startup_event():
     customer_domain_data_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
 
     subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(customer_domain_data_consumer_base_url, ["customer-domain-data"])
+    
+     # Consumer for data-discovery
+    url = "http://localhost/kafka-rest-proxy/consumers/data-discovery-consumer/"
+    data["name"] = "data-discovery-consumer-instance"
+    response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
+
+    global data_discovery_consumer_base_url
+    data_discovery_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
+
+    subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(data_discovery_consumer_base_url, ["data-discovery"])
 
 
 @app.on_event("shutdown")
@@ -79,6 +90,11 @@ async def shutdown_event():
     customer_domain_data_url = customer_domain_data_consumer_base_url
     response = requests.delete(customer_domain_data_url)
     print(f"Domain data consumer deleted with status code {response.status_code}")
+
+    global data_discovery_consumer_base_url
+    data_discovery_consumer_url = data_discovery_consumer_base_url
+    response = requests.delete(data_discovery_consumer_url)
+    print(f"Data discovery consumer deleted with status code {response.status_code}")
 
 
 @app.get("/")
@@ -178,6 +194,32 @@ async def retrieve_data_from_customer_domain(background_tasks: BackgroundTasks):
     return {"status": "Started processing records from Kafka topic in the background."}
 
 
+@app.get("/retrieve-metadata-from-data-discovery")
+async def retrieve_metadata_from_data_discovery(background_tasks: BackgroundTasks):
+
+    def process_records_from_data_discovery_topic():
+        # 1. Listen to the Kafka topic for new messages
+        headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
+
+        response = requests.get(data_discovery_consumer_base_url + "/records", headers=headers)
+        
+        if response.status_code != 200:
+            print(f"Failed to retrieve records from data-discovery Kafka topic: {response.text}")
+            return
+
+        records = response.json()
+        for record in records:
+            decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
+            value_obj = json.loads(decoded_value_json)
+            print(f"Consumed record with value {value_obj} from topic data-discovery")
+            
+            # Additional processing can be done here if necessary...
+
+        print(f"Processed {len(records)} records from data-discovery Kafka topic.")
+
+    # Use background tasks to process records
+    background_tasks.add_task(process_records_from_data_discovery_topic)
+    return {"status": "Started processing records from data-discovery Kafka topic in the background."}
 
 
 

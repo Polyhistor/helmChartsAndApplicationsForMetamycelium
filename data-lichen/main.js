@@ -74,34 +74,37 @@ app.listen(3001, () => {
 });
 
 
-app.get('/dispatch-metadata', async (req, res) => {
+app.get('/publish-metadata', async (req, res) => {
     try {
-        // 1. Consume messages from the Kafka topic using Kafka REST Proxy.
-        const consumeResponse = await axios.post(`${KAFKA_PROXY_URL}/consumers/my_consumer_group/instances/my_consumer/records`, {
-            name: 'my_consumer',
-            format: 'json',
-            auto.offset.reset: 'earliest'
-        });
-
-        // Here, you can parse the consumeResponse if needed. For this example, we'll assume 
-        // that any message in the topic indicates that metadata should be fetched.
-
-        if (consumeResponse.data && consumeResponse.data.length > 0) {
-            // 2. Fetch metadata from SQLite
-            let sql = `SELECT DISTINCT * FROM metadata`;  // Ensure unique services
+        // 1. Fetch metadata from SQLite
+        let sql = `SELECT DISTINCT * FROM metadata`;  // Ensure unique services
+        let metadata = await new Promise((resolve, reject) => {
             db.all(sql, [], (err, rows) => {
                 if (err) {
-                    throw err;
+                    reject(err);
+                } else {
+                    resolve(rows);
                 }
-                // 3. Send the metadata back as a response
-                res.json(rows);
             });
-        } else {
-            res.json({ message: 'No new messages in the Kafka topic' });
-        }
+        });
+
+        // 2. Produce metadata to the Kafka topic via Kafka REST Proxy
+        const produceData = metadata.map(item => ({
+            value: item
+        }));
+
+        await axios.post(`${KAFKA_PROXY_URL}/topics/${KAFKA_TOPIC}`, {
+            records: produceData
+        }, {
+            headers: {
+                'Content-Type': 'application/vnd.kafka.json.v2+json'
+            }
+        });
+
+        res.json({ message: 'Metadata fetched and sent to Kafka successfully' });
 
     } catch (error) {
-        console.error('Error fetching from Kafka or database:', error.message);
+        console.error('Error fetching from database or sending to Kafka:', error.message);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
