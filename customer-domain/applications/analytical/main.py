@@ -187,7 +187,7 @@ async def retrieve_and_save_data():
 async def publish_domains_data():
     tracer = trace.get_tracer(__name__)
 
-    with tracer.start_as_current_span("publish_domains_data_span"):
+    with tracer.start_as_current_span("publish_domains_data_span") as span:  # start a span
         # Fetch all data from SQLite
         all_data = fetch_all_customer_data_from_sqlite.fetch_all_customer_data_from_sqlite()
         bucket_name = 'custom-domain-analytical-data'
@@ -195,7 +195,7 @@ async def publish_domains_data():
         logger.info(f"Starting to process {len(all_data)} data objects.")
         
         for index, data_obj in enumerate(all_data):
-            with tracer.start_as_current_span(f"process_data_object_{index}"):
+            with tracer.start_as_current_span(f"process_data_object_{index}") as data_span:
                 try:
                     # Convert individual data object to JSON format
                     data_json = json.dumps(data_obj)
@@ -206,6 +206,11 @@ async def publish_domains_data():
 
                     # Get the current timestamp (you can also use datetime for more granular timestamp details)
                     current_timestamp = time.time()
+
+                    # Set custom attributes on the span
+                    data_span.set_attribute("object_id", index)  # Set the object's unique identifier as an attribute
+                    data_span.set_attribute("status", "data_ready")
+                    data_span.set_attribute("timestamp", current_timestamp)
 
                     # Notify Kafka about this individual object
                     kafka_utils.post_to_kafka_topic(KAFKA_REST_PROXY_URL, 'customer-domain-data', {
@@ -218,7 +223,13 @@ async def publish_domains_data():
                     logger.info(f"Processed and saved object {index} to Minio.")
 
                 except Exception as e:
-                    with tracer.start_as_current_span("error_handling"):
+                    with tracer.start_as_current_span("error_handling") as error_span:
+                        # Set custom attributes on the error span
+                        error_span.set_attribute("object_id", index)
+                        error_span.set_attribute("status", "processing_failed")
+                        error_span.set_attribute("error", str(e))
+                        error_span.set_attribute("timestamp", current_timestamp)
+                        
                         # Notify Kafka of error for this specific object
                         kafka_utils.post_to_kafka_topic(KAFKA_REST_PROXY_URL, 'customer-domain-data-error', {
                             "status": "processing_failed",

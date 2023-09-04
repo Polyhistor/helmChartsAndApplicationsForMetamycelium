@@ -1,18 +1,16 @@
-from http.client import HTTPException
-from xmlrpc.client import ResponseError
 from fastapi import FastAPI, BackgroundTasks
 from minio import Minio
 import requests
 import json
 import base64
-from sqlite3 import Error
-from io import StringIO
-from utilities import ensure_table_exists, insert_into_db, fetch_data_from_minio, fetch_data_from_minio_and_save, create_metadata, save_data_to_sqlite, subscribe_to_kafka_consumer, create_kafka_consumer
-from datetime import datetime
+from utilities import ensure_table_exists, insert_into_db, fetch_data_from_minio, save_data_to_sqlite, subscribe_to_kafka_consumer, create_kafka_consumer
 
 app = FastAPI()
 
 SERVICE_ADDRESS = "http://localhost:8005"
+SERSERVICE_NAME = "weather_domain_analytical_service"
+SERVICE_VERSION = "1.0.0"
+ENVIRONMENT = "production"
 
 # Create two global variables to store the base URLs of each consumer
 operational_data_consumer_base_url = None
