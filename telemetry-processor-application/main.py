@@ -14,17 +14,17 @@ import psutil
 SERVICE_NAME = "TELEMETRY_PROCESSOR_SERVICE"
 SERVICE_ADDRESS = "http://localhost:8008"
 
+labels = ['service', 'version', 'address']
+
 # Definining Metrics
-kafka_records_consumed = Counter('kafka_records_consumed_total', 'Total Kafka records consumed')
-kafka_data_ingested_records = Counter('kafka_data_ingested_records_total', 'Number of Kafka records ingested')
-kafka_data_ingested_bytes = Counter('kafka_data_ingested_bytes_total', 'Number of bytes ingested from Kafka records')
-kafka_ingestion_errors = Counter('kafka_ingestion_errors_total', 'Number of errors while ingesting data')
-cpu_utilization_gauge = Gauge('service_cpu_utilization_percentage', 'CPU Utilization of the Service')
-memory_utilization_gauge = Gauge('service_memory_utilization_bytes', 'Memory (RAM) Utilization of the Service')
-
-KAFKA_PROCESSING_TIME = Histogram('kafka_processing_duration_seconds', 'Time taken for processing kafka messages')
-ingestion_latency = Histogram('kafka_ingestion_latency_seconds', 'Time taken from data creation to ingestion in seconds')
-
+kafka_records_consumed = Counter('kafka_records_consumed_total', 'Total Kafka records consumed', labels)
+kafka_data_ingested_records = Counter('kafka_data_ingested_records_total', 'Number of Kafka records ingested', labels)
+kafka_data_ingested_bytes = Counter('kafka_data_ingested_bytes_total', 'Number of bytes ingested from Kafka records', labels)
+kafka_ingestion_errors = Counter('kafka_ingestion_errors_total', 'Number of errors while ingesting data', labels)
+cpu_utilization_gauge = Gauge('service_cpu_utilization_percentage', 'CPU Utilization of the Service', labels)
+memory_utilization_gauge = Gauge('service_memory_utilization_bytes', 'Memory (RAM) Utilization of the Service', labels)
+KAFKA_PROCESSING_TIME = Histogram('kafka_processing_duration_seconds', 'Time taken for processing kafka messages', labels)
+ingestion_latency = Histogram('kafka_ingestion_latency_seconds', 'Time taken from data creation to ingestion in seconds', labels)
 
 app = FastAPI()
 
@@ -110,29 +110,41 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
 
                     # Calculating ingestion latency
                     latency = current_time - publish_time
-                    ingestion_latency.observe(latency)
 
                     decoded_key = base64.b64decode(record['key']).decode('utf-8') if record['key'] else None
                     decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
                     value_obj = json.loads(decoded_value_json)
 
-                    # Data ingestion metrics
-                    kafka_records_consumed.inc()
-                    kafka_data_ingested_records.inc()
-                    kafka_data_ingested_bytes.inc(len(json.dumps(record)))
+                    service_name_from_kafka = value_obj.get("service_name", "unknown")
+                    service_version_from_kafka = value_obj.get("service_version", "unknown")
+                    service_address_from_kafka = value_obj.get("service_address", "unknown")
+
+                    labels_data = {
+                        'service': service_name_from_kafka,
+                        'version': service_version_from_kafka,
+                        'address': service_address_from_kafka
+                    }
+
+                    # Data ingestion metrics with labels
+                    kafka_records_consumed.labels(**labels_data).inc()
+                    kafka_data_ingested_records.labels(**labels_data).inc()
+                    kafka_data_ingested_bytes.labels(**labels_data).inc(len(json.dumps(record)))
+                    ingestion_latency.labels(**labels_data).observe(latency)
 
                     print(f"Consumed record with key {decoded_key} and value {value_obj}")
 
             except Exception as e:
-                kafka_ingestion_errors.inc()
+                # Error metrics with labels (assuming service details can be derived from the latest processed record in case of errors)
+                kafka_ingestion_errors.labels(**labels_data).inc()
                 raise Exception(f"Error while consuming data: {str(e)}")
 
-            # CPU & Memory Utilization
-            cpu_utilization_gauge.set(psutil.cpu_percent())
-            memory_utilization_gauge.set(psutil.virtual_memory().used)
+            # CPU & Memory Utilization with labels
+            cpu_utilization_gauge.labels(service="TELEMETRY_PROCESSOR_SERVICE", version="1.0.0", address=SERVICE_ADDRESS).set(psutil.cpu_percent())
+            memory_utilization_gauge.labels(service="TELEMETRY_PROCESSOR_SERVICE", version="1.0.0", address=SERVICE_ADDRESS).set(psutil.virtual_memory().used)
 
     background_tasks.add_task(consume_records)
     return {"status": "Consuming records in the background"}
+
 
 
 @app.get("/metrics")

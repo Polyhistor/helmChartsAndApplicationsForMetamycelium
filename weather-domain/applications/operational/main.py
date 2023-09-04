@@ -4,12 +4,31 @@ import requests
 from minio import Minio
 from io import BytesIO
 import json
-import base64
-import time 
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.trace import SpanKind
+
 
 app = FastAPI()
+FastAPIInstrumentor.instrument_app(app)
 
+SERVICE_ADDRESS = "http://localhost:8006"
+SERVICE_NAME = "WEATHER_DOMAIN_OPERATIONAL_SERVICE"
+SERVICE_VERSION = "1.0.0"
+ENVIRONMENT = "production"
+KAFKA_REST_PROXY_URL = "http://localhost/kafka-rest-proxy"
 
+# Setting up the trace provider
+trace.set_tracer_provider(TracerProvider())
+
+kafka_exporter = KafkaRESTProxyExporter(topic_name="telemetry-data", rest_proxy_url=KAFKA_REST_PROXY_URL, service_name=SERVICE_NAME, service_address=SERVICE_ADDRESS)
+span_processor = BatchSpanProcessor(kafka_exporter)
+trace.get_tracer_provider().add_span_processor(span_processor)
+
+# Setting up OpenTelemetry
+tracer = trace.get_tracer(__name__)
 
 # Load your CSV data
 df1 = pd.read_csv('temperature.csv')
@@ -62,71 +81,85 @@ async def get_cluster_id():
 async def main_function(): 
     return "welcome to the weather domain operational service"
 
+
 @app.get('/store-operational-data')
 async def produce_to_kafka(topic: str = 'domain-weather-operational-data'):
-    # Kafka REST Proxy URL for producing messages to a topic
-    url = f"{kafka_rest_proxy_base_url}/topics/" + topic
-    headers = {
-        'Content-Type': 'application/vnd.kafka.json.v2+json',
-    }
+    with tracer.start_as_current_span("store-operational-data", kind=SpanKind.SERVER) as span:
 
-    # Dispatch the "Data loading started" event
-    payload_start = {
-        "records": [
-            {
-                "key" : "weather-domain-operational-data-stored",
-                "value": {
-                    "message": "Data loading started"
+        # Kafka REST Proxy URL for producing messages to a topic
+        url = f"{kafka_rest_proxy_base_url}/topics/" + topic
+        headers = {
+            'Content-Type': 'application/vnd.kafka.json.v2+json',
+        }
+
+        # Dispatch the "Data loading started" event
+        payload_start = {
+            "records": [
+                {
+                    "key" : "weather-domain-operational-data-stored",
+                    "value": {
+                        "message": "Data loading started"
+                    }
                 }
-            }
-        ]
-    }
+            ]
+        }
 
-    print(url)
-    response = requests.post(url, headers=headers, data=json.dumps(payload_start))
+        span.add_event("Dispatching data loading start event")
 
-    if response.status_code != 200:
-        return {"error": response.text}
+        print(url)
+        response = requests.post(url, headers=headers, data=json.dumps(payload_start))
 
-    # Store the merged data in Minio
-    csv_data = merged_df.to_csv(index=False).encode('utf-8')
-    csv_bytes = BytesIO(csv_data)
-    min_io_bucket_name = "weather-domain-operational-data"
-    min_io_object_name = "merged_data-v2.5.csv"
+        if response.status_code != 200:
+            span.set_attribute("error", True)
+            span.set_attribute("error_details", response.text)
+            return {"error": response.text}
 
-    bucketExists = minio_client.bucket_exists(min_io_bucket_name)
-    if not bucketExists:
-        minio_client.make_bucket(min_io_bucket_name)
-    else: 
-        print("bucket already exist")
+        span.add_event("Storing merged data in Minio")
 
-    minio_client.put_object(
-        bucket_name=min_io_bucket_name,
-        object_name=min_io_object_name,
-        data=csv_bytes,
-        length=len(csv_data),
-        content_type='text/csv',
-    )
+        # Store the merged data in Minio
+        csv_data = merged_df.to_csv(index=False).encode('utf-8')
+        csv_bytes = BytesIO(csv_data)
+        min_io_bucket_name = "weather-domain-operational-data"
+        min_io_object_name = "merged_data-v2.5.csv"
 
-    # Dispatch the "Data loading finished" event
-    payload_end = {
-        "records": [
-            {   
-                "key" : "weather-domain-operational-data-stored",
-                "value": {
-                    "message": "Data loading finished",
-                     "distributedStorageAddress" : minio_url,
-                     "minio_access_key": minio_acces_key,
-                     "minio_secret_key" : minio_secret_key,
-                     "bucket_name": min_io_bucket_name,
-                     "object_name" : min_io_object_name
+        bucketExists = minio_client.bucket_exists(min_io_bucket_name)
+        if not bucketExists:
+            minio_client.make_bucket(min_io_bucket_name)
+        else: 
+            span.add_event("Minio bucket already exists")
+            print("bucket already exist")
+
+        minio_client.put_object(
+            bucket_name=min_io_bucket_name,
+            object_name=min_io_object_name,
+            data=csv_bytes,
+            length=len(csv_data),
+            content_type='text/csv',
+        )
+
+        # Dispatch the "Data loading finished" event
+        span.add_event("Dispatching data loading finished event")
+
+        payload_end = {
+            "records": [
+                {   
+                    "key" : "weather-domain-operational-data-stored",
+                    "value": {
+                        "message": "Data loading finished",
+                        "distributedStorageAddress" : minio_url,
+                        "minio_access_key": minio_acces_key,
+                        "minio_secret_key" : minio_secret_key,
+                        "bucket_name": min_io_bucket_name,
+                        "object_name" : min_io_object_name
+                    }
                 }
-            }
-        ]
-    }
+            ]
+        }
 
-    response = requests.post(url, headers=headers, data=json.dumps(payload_end))
-    if response.status_code != 200:
-        return {"error": response.text}
+        response = requests.post(url, headers=headers, data=json.dumps(payload_end))
+        if response.status_code != 200:
+            span.set_attribute("error", True)
+            span.set_attribute("error_details", response.text)
+            return {"error": response.text}
 
     return {"status": "Data loaded and events dispatched"}

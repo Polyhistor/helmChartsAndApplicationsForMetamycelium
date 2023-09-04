@@ -4,18 +4,36 @@ import requests
 import json
 import base64
 from utilities import ensure_table_exists, insert_into_db, fetch_data_from_minio, save_data_to_sqlite, subscribe_to_kafka_consumer, create_kafka_consumer
+from utilities.kafka_rest_proxy_exporter import KafkaRESTProxyExporter
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 app = FastAPI()
+FastAPIInstrumentor.instrument_app(app)
 
 SERVICE_ADDRESS = "http://localhost:8005"
-SERSERVICE_NAME = "weather_domain_analytical_service"
+SERVICE_NAME = "WEATHER_DOMAIN_ANALYTICAL_SERVICE"
 SERVICE_VERSION = "1.0.0"
 ENVIRONMENT = "production"
+KAFKA_REST_PROXY_URL = "http://localhost/kafka-rest-proxy"
+
 
 # Create two global variables to store the base URLs of each consumer
 operational_data_consumer_base_url = None
 customer_domain_data_consumer_base_url = None
 data_discovery_consumer_base_url = None
+
+# Setting up the trace provider
+trace.set_tracer_provider(TracerProvider())
+
+kafka_exporter = KafkaRESTProxyExporter(topic_name="telemetry-data", rest_proxy_url=KAFKA_REST_PROXY_URL, service_name=SERVICE_NAME, service_address=SERVICE_ADDRESS)
+span_processor = BatchSpanProcessor(kafka_exporter)
+trace.get_tracer_provider().add_span_processor(span_processor)
+
+# Setting up OpenTelemetry
+tracer = trace.get_tracer(__name__)
 
 # Storage info dictionary
 storage_info = {}
@@ -103,120 +121,139 @@ async def main_function():
 async def consume_kafka_message(background_tasks: BackgroundTasks):
     global operational_data_consumer_base_url
 
-    if operational_data_consumer_base_url is None:
-        return {"status": "Consumer has not been initialized. Please try again later."}
+    with tracer.start_as_current_span("consume-kafka-message", kind=SpanKind.SERVER) as span:
 
-    url = operational_data_consumer_base_url + "/records"
-    headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
+        if operational_data_consumer_base_url is None:
+            span.set_attribute("error", True)
+            span.set_attribute("error_details", "Consumer has not been initialized")
+            return {"status": "Consumer has not been initialized. Please try again later."}
 
-    ensure_table_exists.ensure_table_exists()
+        url = operational_data_consumer_base_url + "/records"
+        headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
 
-    def consume_records():
-        global storage_info
+        ensure_table_exists.ensure_table_exists()
+
+        def consume_records():
+            global storage_info
+            
+            response = requests.get(url, headers=headers)
+            if response.status_code != 200:
+                span.set_attribute("error", True)
+                span.set_attribute("error_details", f"GET /records/ did not succeed: {response.text}")
+                raise Exception(f"GET /records/ did not succeed: {response.text}")
+            else:
+                records = response.json()
+                for record in records:
+                    decoded_key = base64.b64decode(record['key']).decode('utf-8') if record['key'] else None
+                    decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
+                    value_obj = json.loads(decoded_value_json)
+
+                    storage_info = {
+                    "distributedStorageAddress": value_obj.get('distributedStorageAddress', ''),
+                    "minio_access_key": value_obj.get('minio_access_key', ''),
+                    "minio_secret_key": value_obj.get('minio_secret_key', ''),
+                    "bucket_name": value_obj.get('bucket_name', ''),
+                    "object_name": value_obj.get('object_name', '')
+                    }
+
+                    # Insert the storage info into the SQLite database
+                    insert_into_db.insert_into_db(storage_info)
+
+                    span.add_event(f"Consumed record with key {decoded_key} and value {value_obj['message']} from topic {record['topic']}")
+                    if 'distributedStorageAddress' in value_obj:
+                        span.add_event(f"Distributed storage address: {value_obj['distributedStorageAddress']}")
+                        span.add_event(f"Minio access key: {value_obj['minio_access_key']}")
+                        span.add_event(f"Minio secret key: {value_obj['minio_secret_key']}")
+                        span.add_event(f"Bucket name: {value_obj['bucket_name']}")
+                        span.add_event(f"Object name: {value_obj['object_name']}")
+
+        background_tasks.add_task(consume_records)
+        span.add_event("Started consuming records in the background")
         
-        response = requests.get(url, headers=headers)
-        if response.status_code != 200:
-            raise Exception(f"GET /records/ did not succeed: {response.text}")
-        else:
-            records = response.json()
-            for record in records:
-                decoded_key = base64.b64decode(record['key']).decode('utf-8') if record['key'] else None
-                decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
-                value_obj = json.loads(decoded_value_json)
-
-                storage_info = {
-                "distributedStorageAddress": value_obj.get('distributedStorageAddress', ''),
-                "minio_access_key": value_obj.get('minio_access_key', ''),
-                "minio_secret_key": value_obj.get('minio_secret_key', ''),
-                "bucket_name": value_obj.get('bucket_name', ''),
-                "object_name": value_obj.get('object_name', '')
-                }
-
-                # Insert the storage info into the SQLite database
-                insert_into_db.insert_into_db(storage_info)
-
-                print(f"Consumed record with key {decoded_key} and value {value_obj['message']} from topic {record['topic']}")
-                if 'distributedStorageAddress' in value_obj:
-                    print(f"Distributed storage address: {value_obj['distributedStorageAddress']}")
-                    print(f"Minio access key: {value_obj['minio_access_key']}")
-                    print(f"Minio secret key: {value_obj['minio_secret_key']}")
-                    print(f"Bucket name: {value_obj['bucket_name']}")
-                    print(f"Object name: {value_obj['object_name']}")
-
-
-    background_tasks.add_task(consume_records)
     return {"status": "Consuming records in the background"}
-
 
 @app.get("/retrieve-data-from-customer-domain")
 async def retrieve_data_from_customer_domain(background_tasks: BackgroundTasks):
+    
+    with tracer.start_as_current_span("retrieve-data-from-customer-domain", kind=SpanKind.SERVER) as span:
+        def process_records_from_kafka_topic():
+            # 1. Listen to the Kafka topic for a new message
+            headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
 
-    def process_records_from_kafka_topic():
-        # 1. Listen to the Kafka topic for a new message
-        headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
+            response = requests.get(customer_domain_data_consumer_base_url + "/records", headers=headers)
+            
+            if response.status_code != 200:
+                print(f"Failed to retrieve records from Kafka topic: {response.text}")
+                span.set_attribute("error", True)
+                span.set_attribute("error_details", response.text)
+                return
 
-        response = requests.get(customer_domain_data_consumer_base_url + "/records", headers=headers)
+            records = response.json()
+            for record in records:
+                decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
+                value_obj = json.loads(decoded_value_json)
+
+                # 2. Extract Minio storage information
+                distributed_storage_address = value_obj.get('data_location')
+                minio_access_key = MINIO_ACCESS_KEY
+                minio_secret_key = MINIO_SECRET_KEY
+                bucket_name = value_obj.get('bucket_name', 'custom-domain-analytical-data')
+                object_name = value_obj.get('object_name', f"data_object_{value_obj.get('object_id')}.json")
+
+                # 3. Retrieve data from Minio using the storage info
+                data_str = fetch_data_from_minio.fetch_data_from_minio(
+                    distributed_storage_address,
+                    minio_access_key,
+                    minio_secret_key,
+                    bucket_name,
+                    object_name
+                )
+
+                # 4. Save this data to SQLite
+                save_data_to_sqlite.save_data_to_sqlite(data_str, 'weather_domain.db')
+            
+            span.set_attribute("records_processed", len(records))
+            print(f"Processed {len(records)} records from Kafka topic and stored in SQLite.")
         
-        if response.status_code != 200:
-            print(f"Failed to retrieve records from Kafka topic: {response.text}")
-            return
-
-        records = response.json()
-        for record in records:
-            decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
-            value_obj = json.loads(decoded_value_json)
-
-            # 2. Extract Minio storage information
-            distributed_storage_address = value_obj.get('data_location')
-            minio_access_key = MINIO_ACCESS_KEY
-            minio_secret_key = MINIO_SECRET_KEY
-            bucket_name = value_obj.get('bucket_name', 'custom-domain-analytical-data')
-            object_name = value_obj.get('object_name', f"data_object_{value_obj.get('object_id')}.json")
-
-            # 3. Retrieve data from Minio using the storage info
-            data_str = fetch_data_from_minio.fetch_data_from_minio(
-                distributed_storage_address,
-                minio_access_key,
-                minio_secret_key,
-                bucket_name,
-                object_name
-            )
-
-            # 4. Save this data to SQLite
-            save_data_to_sqlite.save_data_to_sqlite(data_str, 'weather_domain.db')
-        
-        print(f"Processed {len(records)} records from Kafka topic and stored in SQLite.")
-
-    # Use background tasks to process records
-    background_tasks.add_task(process_records_from_kafka_topic)
-    return {"status": "Started processing records from Kafka topic in the background."}
+        # Use background tasks to process records
+        background_tasks.add_task(process_records_from_kafka_topic)
+        span.add_event("Started processing records from Kafka topic in the background")
+        return {"status": "Started processing records from Kafka topic in the background."}
 
 
 @app.get("/retrieve-metadata-from-data-discovery")
 async def retrieve_metadata_from_data_discovery(background_tasks: BackgroundTasks):
-
-    def process_records_from_data_discovery_topic():
-        # 1. Listen to the Kafka topic for new messages
-        headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
-
-        response = requests.get(data_discovery_consumer_base_url + "/records", headers=headers)
+    
+    with tracer.start_as_current_span("retrieve-metadata-from-data-discovery", kind=SpanKind.SERVER) as span:
         
-        if response.status_code != 200:
-            print(f"Failed to retrieve records from data-discovery Kafka topic: {response.text}")
-            return
+        def process_records_from_data_discovery_topic():
+            # 1. Listen to the Kafka topic for new messages
+            headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
 
-        records = response.json()
-        for record in records:
-            decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
-            value_obj = json.loads(decoded_value_json)
-            print(f"Consumed record with value {value_obj} from topic data-discovery")
+            response = requests.get(data_discovery_consumer_base_url + "/records", headers=headers)
             
-            # Additional processing can be done here if necessary...
+            if response.status_code != 200:
+                print(f"Failed to retrieve records from data-discovery Kafka topic: {response.text}")
+                span.set_attribute("error", True)
+                span.set_attribute("error_details", response.text)
+                return
 
-        print(f"Processed {len(records)} records from data-discovery Kafka topic.")
+            records = response.json()
+            for record in records:
+                decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
+                value_obj = json.loads(decoded_value_json)
+                
+                span.add_event(f"Consumed record with value {value_obj} from topic data-discovery")
+                
+                # Additional processing can be done here if necessary...
 
-    # Use background tasks to process records
-    background_tasks.add_task(process_records_from_data_discovery_topic)
+            span.set_attribute("records_processed", len(records))
+            print(f"Processed {len(records)} records from data-discovery Kafka topic.")
+        
+        # Use background tasks to process records
+        background_tasks.add_task(process_records_from_data_discovery_topic)
+        span.add_event("Started processing records from data-discovery Kafka topic in the background")
+        
     return {"status": "Started processing records from data-discovery Kafka topic in the background."}
 
 
