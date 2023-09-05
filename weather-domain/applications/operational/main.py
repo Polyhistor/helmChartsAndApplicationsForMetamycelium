@@ -4,6 +4,7 @@ import requests
 from minio import Minio
 from io import BytesIO
 import json
+from utilities.kafka_rest_proxy_exporter import KafkaRESTProxyExporter
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor

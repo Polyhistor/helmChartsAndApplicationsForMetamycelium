@@ -5,14 +5,19 @@ name = "pypi"
 
 [packages]
 fastapi = "*"
-uvicorn = "*"
 pandas = "*"
+numpy = "*"
+uvicorn = "*"
 confluent-kafka = "*"
 requests = "*"
 minio = "*"
+opentelemetry-sdk = "*"
+opentelemetry-instrumentation-fastapi = "*"
+opentelemetry-instrumentation-requests = "*"
+opentelemetry-api = "*"
 
 [dev-packages]
 
 [requires]
 python_version = "3.11"
-python_full_version = "3.11.3"
+python_full_version = "3.11.4"

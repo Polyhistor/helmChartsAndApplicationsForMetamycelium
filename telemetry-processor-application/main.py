@@ -93,7 +93,6 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
     url = consumer_base_url + "/records"
     headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
 
-    @KAFKA_PROCESSING_TIME.time()
     def consume_records():
         while True:
             try:
@@ -105,6 +104,8 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
                     break
 
                 for record in records:
+                    start_time = time.time()  # Start the timer
+
                     publish_time = record.get("timestamp", time.time())  # defaulting to current time if no timestamp
                     current_time = time.time()
 
@@ -133,6 +134,10 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
 
                     print(f"Consumed record with key {decoded_key} and value {value_obj}")
 
+                    end_time = time.time()  # End the timer
+                    duration = end_time - start_time
+                    KAFKA_PROCESSING_TIME.labels(**labels_data).observe(duration)  # Observe the duration
+
             except Exception as e:
                 # Error metrics with labels (assuming service details can be derived from the latest processed record in case of errors)
                 kafka_ingestion_errors.labels(**labels_data).inc()
@@ -144,8 +149,6 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
 
     background_tasks.add_task(consume_records)
     return {"status": "Consuming records in the background"}
-
-
 
 @app.get("/metrics")
 async def get_metrics():

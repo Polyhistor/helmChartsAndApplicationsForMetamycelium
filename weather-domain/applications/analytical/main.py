@@ -9,10 +9,12 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.trace import SpanKind
 
 app = FastAPI()
 FastAPIInstrumentor.instrument_app(app)
 
+# Global variables
 SERVICE_ADDRESS = "http://localhost:8005"
 SERVICE_NAME = "WEATHER_DOMAIN_ANALYTICAL_SERVICE"
 SERVICE_VERSION = "1.0.0"
