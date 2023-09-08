@@ -14,7 +14,6 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
-
 app = FastAPI()
 FastAPIInstrumentor.instrument_app(app)
 

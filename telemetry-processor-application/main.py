@@ -33,7 +33,7 @@ consumer_base_url = None
 @app.on_event("startup")
 async def startup_event():
     url = "http://localhost/kafka-rest-proxy/consumers/telemetry-data-consumer/"
-    headers = {
+    headers = { 
         'Content-Type': 'application/vnd.kafka.v2+json',
     }
     data = {
@@ -94,6 +94,12 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
     headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
 
     def consume_records():
+        labels_data = {
+                'service': "unknown",
+                'version': "unknown",
+                'address': "unknown"
+        }
+
         while True:
             try:
                 response = requests.get(url, headers=headers)
@@ -104,6 +110,7 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
                     break
 
                 for record in records:
+                    
                     start_time = time.time()  # Start the timer
 
                     publish_time = record.get("timestamp", time.time())  # defaulting to current time if no timestamp
