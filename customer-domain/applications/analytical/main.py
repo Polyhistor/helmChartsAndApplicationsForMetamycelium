@@ -115,6 +115,15 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
 
     # Start a new span for this endpoint
     with tracer.start_as_current_span("consume_kafka_message"):
+        
+        # Verify Consumer existence and status before proceeding
+        if consumer_base_url:  # Check if consumer_base_url is initialized
+            response_consumer = requests.get(f"{consumer_base_url}/status")
+            if response_consumer.status_code != 200:
+                # Recreate the consumer if it doesn't exist or is in an error state
+                await startup_event()  # Reuse the startup logic to create and subscribe consumer
+        
+        # If after checking (or recreating) the consumer_base_url is still None, return an error message
         if consumer_base_url is None:
             return {"status": "Consumer has not been initialized. Please try again later."}
 

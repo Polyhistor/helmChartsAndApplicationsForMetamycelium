@@ -38,7 +38,7 @@ class KafkaRESTProxyExporter(SpanExporter):
 
             # Retrieve the parent span ID
             parent_span_id = span.parent.span_id if span.parent else None
-
+            
             # Construct the serialized span
             serialized_span = {
                 "name": span.name,

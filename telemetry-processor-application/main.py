@@ -115,6 +115,8 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
 
                     publish_time = record.get("timestamp", time.time())  # defaulting to current time if no timestamp
                     current_time = time.time()
+
+                    # Calculating ingestion latency
                     latency = current_time - publish_time
 
                     decoded_key = base64.b64decode(record['key']).decode('utf-8') if record['key'] else None
@@ -131,7 +133,11 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
                         'address': service_address_from_kafka
                     }
 
-                    # ... [rest of the metrics updates]
+                    # Data ingestion metrics with labels
+                    kafka_records_consumed.labels(**labels_data).inc()
+                    kafka_data_ingested_records.labels(**labels_data).inc()
+                    kafka_data_ingested_bytes.labels(**labels_data).inc(len(json.dumps(record)))
+                    ingestion_latency.labels(**labels_data).observe(latency)
 
                     # Update the service CPU and Memory utilization from the Kafka message
                     kafka_cpu_utilization = value_obj.get("cpu_utilization", None)
@@ -139,19 +145,22 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
 
                     if kafka_cpu_utilization is not None:
                         cpu_utilization_gauge.labels(**labels_data).set(kafka_cpu_utilization)
-                    
+
                     if kafka_memory_utilization is not None:
                         memory_utilization_gauge.labels(**labels_data).set(kafka_memory_utilization)
+
+                    print(f"Consumed record with key {decoded_key} and value {value_obj}")
 
                     end_time = time.time()  # End the timer
                     duration = end_time - start_time
                     KAFKA_PROCESSING_TIME.labels(**labels_data).observe(duration)  # Observe the duration
 
             except Exception as e:
+                # Error metrics with labels (assuming service details can be derived from the latest processed record in case of errors)
                 kafka_ingestion_errors.labels(**labels_data).inc()
                 raise Exception(f"Error while consuming data: {str(e)}")
 
-            # CPU & Memory Utilization of this service
+            # CPU & Memory Utilization with labels
             cpu_utilization_gauge.labels(service="TELEMETRY_PROCESSOR_SERVICE", version="1.0.0", address=SERVICE_ADDRESS).set(psutil.cpu_percent())
             memory_utilization_gauge.labels(service="TELEMETRY_PROCESSOR_SERVICE", version="1.0.0", address=SERVICE_ADDRESS).set(psutil.virtual_memory().used)
 
