@@ -1,5 +1,6 @@
 import requests
 import json
+import psutil
 from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 
 class KafkaRESTProxyExporter(SpanExporter):
@@ -37,26 +38,28 @@ class KafkaRESTProxyExporter(SpanExporter):
 
             # Retrieve the parent span ID
             parent_span_id = span.parent.span_id if span.parent else None
-
+            
             # Construct the serialized span
             serialized_span = {
                 "name": span.name,
                 "context": {
                     "trace_id": span_context.trace_id,
                     "span_id": span_context.span_id,
-                    "parent_span_id": parent_span_id,  # Include the parent span ID
+                    "parent_span_id": parent_span_id,
                     "is_remote": span_context.is_remote,
                     "trace_flags": span_context.trace_flags,
                     "trace_state": trace_state_str  
                 },
-                "start_time": span.start_time,  # Start time of the span
-                "end_time": span.end_time,  # End time of the span
-                "span_kind": span.kind.name,  # Span kind (e.g., CLIENT, SERVER)
-                "status": span.status.status_code.name,  # Status of the span (e.g., OK, ERROR)
-                "events": [{"name": event.name, "timestamp": event.timestamp, "attributes": dict(event.attributes)} for event in span.events],  # Events associated with the span
+                "start_time": span.start_time,
+                "end_time": span.end_time,
+                "span_kind": span.kind.name,
+                "status": span.status.status_code.name,
+                "events": [{"name": event.name, "timestamp": event.timestamp, "attributes": dict(event.attributes)} for event in span.events],
                 "attributes": attributes_dict, 
-                "service_name": self.service_name,  # Add the service name
-                "service_address": self.service_address  # Add the service address
+                "service_name": self.service_name,
+                "service_address": self.service_address,
+                "cpu_utilization": psutil.cpu_percent(),  # Capturing CPU utilization
+                "memory_utilization": psutil.virtual_memory().used  # Capturing RAM usage in bytes
             }
 
             # This is a check to identify the non-serializable part
