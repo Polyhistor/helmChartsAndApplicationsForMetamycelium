@@ -1,12 +1,13 @@
 from http.client import HTTPException
 from xmlrpc.client import ResponseError
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI, HTTPException, status, BackgroundTasks
 from minio import Minio
 import requests
 import json
 import base64
 import logging
 import time 
+from confluent_kafka import Producer
 from utilities import ensure_table_exists, insert_into_db, register_metadata_to_data_lichen, upload_data_to_minio, fetch_all_customer_data_from_sqlite, kafka_utils
 from utilities.kafka_rest_proxy_exporter import KafkaRESTProxyExporter
 from opentelemetry import trace
@@ -16,6 +17,14 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 app = FastAPI()
 FastAPIInstrumentor.instrument_app(app)
+
+# Kafka configuration
+KAFKA_BROKER_URL = 'localhost:9092'
+producer_config = {
+    'bootstrap.servers': KAFKA_BROKER_URL,
+}
+
+producer = Producer(producer_config)
 
 # Initialize logger
 logging.basicConfig(level=logging.INFO)
@@ -251,3 +260,56 @@ async def publish_domains_data():
 
     logger.info(f"Finished processing {len(all_data)} data objects and saving to Minio.")
     return {"status": f"Processed {len(all_data)} data objects and saved to Minio."}
+
+def delivery_report(err, msg):
+    """ Called once for each message produced to indicate delivery result. """
+    if err is not None:
+        print('Message delivery failed: {}'.format(err))
+    else:
+        print('Message delivered to {} [{}]'.format(msg.topic(), msg.partition()))
+
+
+@app.get('/stream-domains-data')
+async def stream_domains_data():
+    tracer = trace.get_tracer(__name__)
+
+    with tracer.start_as_current_span("stream_domains_data_span") as span:  # start a span
+        # Fetch all domain data from SQLite
+        all_data = fetch_all_customer_data_from_sqlite.fetch_all_customer_data_from_sqlite()
+
+        logger.info(f"Starting to process {len(all_data)} domain objects.")
+        
+        # Max size (in bytes) for each chunked message
+        # Note: This value should be less than your Kafka's max message size.
+        MAX_CHUNK_SIZE = 50000  # Example value; adjust as needed
+        
+        for index, domain_obj in enumerate(all_data):
+            with tracer.start_as_current_span(f"process_domain_object_{index}") as domain_span:
+                try:
+                    # Convert individual domain object to JSON format
+                    domain_json = json.dumps(domain_obj)
+                    
+                    # Chunk data into segments not larger than MAX_CHUNK_SIZE
+                    for chunk_start in range(0, len(domain_json), MAX_CHUNK_SIZE):
+                        chunk = domain_json[chunk_start:chunk_start + MAX_CHUNK_SIZE]
+                        producer.produce('customer-domain-data', key=f"{index}-{chunk_start}", value=chunk, callback=delivery_report)
+                        producer.flush()  # Ensure all messages are sent
+
+                    # Set custom attributes on the span
+                    domain_span.set_attribute("object_id", index)
+                    domain_span.set_attribute("status", "data_ready")
+
+                    logger.info(f"Processed and streamed domain object {index} to Kafka.")
+
+                except Exception as e:
+                    with tracer.start_as_current_span("error_handling") as error_span:
+                        # Set custom attributes on the error span
+                        error_span.set_attribute("object_id", index)
+                        error_span.set_attribute("status", "processing_failed")
+                        error_span.set_attribute("error", str(e))
+                        
+                        logger.error(f"An error occurred while processing domain object {index}: {e}")
+                        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An error occurred while processing domain object {index}: {e}")
+
+    logger.info(f"Finished streaming {len(all_data)} domain objects to Kafka.")
+    return {"status": f"Streamed {len(all_data)} domain objects to Kafka."}
