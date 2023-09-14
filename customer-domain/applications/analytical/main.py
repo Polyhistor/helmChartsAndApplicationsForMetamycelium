@@ -279,7 +279,7 @@ async def stream_domains_data():
 
         logger.info(f"Starting to process {len(all_data)} domain objects.")
         
-        # Max size (in bytes) for each chunked message
+        # Max size (in bytes) for each chunked message..
         # Note: This value should be less than your Kafka's max message size.
         MAX_CHUNK_SIZE = 50000  # Example value; adjust as needed
         
