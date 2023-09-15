@@ -269,47 +269,52 @@ def delivery_report(err, msg):
         print('Message delivered to {} [{}]'.format(msg.topic(), msg.partition()))
 
 
-@app.get('/stream-domains-data')
-async def stream_domains_data():
-    tracer = trace.get_tracer(__name__)
-
-    with tracer.start_as_current_span("stream_domains_data_span") as span:  # start a span
-        # Fetch all domain data from SQLite
-        all_data = fetch_all_customer_data_from_sqlite.fetch_all_customer_data_from_sqlite()
-
-        logger.info(f"Starting to process {len(all_data)} domain objects.")
+@app.post("/publish_domains_data")
+async def publish_domains_data(data: List[DomainData]):
+    processing_durations = []
+    successful_objects, failed_objects = 0, 0
+    total_size = len(data)
+    
+    start_time = time.time()
+    
+    for obj in data:
+        obj_start_time = time.time()
         
-        # Max size (in bytes) for each chunked message..
-        # Note: This value should be less than your Kafka's max message size.
-        MAX_CHUNK_SIZE = 50000  # Example value; adjust as needed
-        
-        for index, domain_obj in enumerate(all_data):
-            with tracer.start_as_current_span(f"process_domain_object_{index}") as domain_span:
-                try:
-                    # Convert individual domain object to JSON format
-                    domain_json = json.dumps(domain_obj)
-                    
-                    # Chunk data into segments not larger than MAX_CHUNK_SIZE
-                    for chunk_start in range(0, len(domain_json), MAX_CHUNK_SIZE):
-                        chunk = domain_json[chunk_start:chunk_start + MAX_CHUNK_SIZE]
-                        producer.produce('customer-domain-data', key=f"{index}-{chunk_start}", value=chunk, callback=delivery_report)
-                        producer.flush()  # Ensure all messages are sent
+        span = tracer.start_span("process_data_object")
+        span.set_attribute("object_id", obj.id)
+        span.set_attribute("timestamp", datetime.utcnow().isoformat())
 
-                    # Set custom attributes on the span
-                    domain_span.set_attribute("object_id", index)
-                    domain_span.set_attribute("status", "data_ready")
+        try:
+            # Simulating data processing
+            await asyncio.sleep(1)
+            
+            successful_objects += 1
+            span.set_attribute("status", "data_ready")
+            
+        except Exception as e:
+            span.set_attribute("status", "processing_failed")
+            span.set_attribute("error", str(e))
+            failed_objects += 1
+            logging.error(f"Error processing object {obj.id}: {str(e)}")
+            
+        finally:
+            processing_duration = time.time() - obj_start_time
+            processing_durations.append(processing_duration)
+            
+            span.set_attribute("processing_time_seconds", processing_duration)
+            span.end()
 
-                    logger.info(f"Processed and streamed domain object {index} to Kafka.")
-
-                except Exception as e:
-                    with tracer.start_as_current_span("error_handling") as error_span:
-                        # Set custom attributes on the error span
-                        error_span.set_attribute("object_id", index)
-                        error_span.set_attribute("status", "processing_failed")
-                        error_span.set_attribute("error", str(e))
-                        
-                        logger.error(f"An error occurred while processing domain object {index}: {e}")
-                        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An error occurred while processing domain object {index}: {e}")
-
-    logger.info(f"Finished streaming {len(all_data)} domain objects to Kafka.")
-    return {"status": f"Streamed {len(all_data)} domain objects to Kafka."}
+    avg_processing_time = sum(processing_durations) / total_size
+    total_time = time.time() - start_time
+    
+    metrics = {
+        "total_objects_processed": total_size,
+        "successful_objects": successful_objects,
+        "failed_objects": failed_objects,
+        "average_processing_time_seconds": avg_processing_time,
+        "total_processing_time_seconds": total_time
+    }
+    
+    logging.info(f"Metrics: {metrics}")
+    
+    return {"status": "done", "metrics": metrics}
