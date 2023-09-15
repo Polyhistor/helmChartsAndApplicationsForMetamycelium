@@ -27,6 +27,8 @@ SERVICE_NAME = "CUSTOMER_DOMAIN_ANALYTICAL_SERVICE"
 SERVICE_ADDRESS = "http://localhost:8000"
 consumer_base_url = None
 KAFKA_REST_PROXY_URL = "http://localhost/kafka-rest-proxy"
+KAFKA_REST_PROXY_TOPIC_ENDPOINT = f"{KAFKA_REST_PROXY_URL}/topics"
+
 
 # Setting up the trace provider
 trace.set_tracer_provider(TracerProvider())
@@ -92,6 +94,7 @@ async def startup_event():
         if response.status_code != 204:
             raise Exception(
                 "Failed to subscribe consumer to topic: " + response.text)
+        
 
 
 @app.on_event("shutdown")
@@ -261,52 +264,62 @@ def delivery_report(err, msg):
         print('Message delivered to {} [{}]'.format(msg.topic(), msg.partition()))
 
 
-@app.post("/publish_domains_data")
-async def publish_domains_data(data: List[DomainData]):
-    processing_durations = []
-    successful_objects, failed_objects = 0, 0
-    total_size = len(data)
-    
-    start_time = time.time()
-    
-    for obj in data:
-        obj_start_time = time.time()
+@app.get('/stream-domains-data')
+async def stream_domains_data():
+    tracer = trace.get_tracer(__name__)
+
+    with tracer.start_as_current_span("stream_domains_data_span") as span:  # start a span
+        # Assume that you have some method to fetch data you want to stream.
+        streaming_data = fetch_streaming_data()
+
+        logger.info(f"Starting to process {len(streaming_data)} streaming data objects.")
         
-        span = tracer.start_span("process_data_object")
-        span.set_attribute("object_id", obj.id)
-        span.set_attribute("timestamp", datetime.utcnow().isoformat())
+        for index, data_obj in enumerate(streaming_data):
+            with tracer.start_as_current_span(f"process_streaming_object_{index}") as data_span:
+                try:
+                    # Convert individual data object to JSON format
+                    data_json = json.dumps(data_obj)
 
-        try:
-            # Simulating data processing
-            await asyncio.sleep(1)
-            
-            successful_objects += 1
-            span.set_attribute("status", "data_ready")
-            
-        except Exception as e:
-            span.set_attribute("status", "processing_failed")
-            span.set_attribute("error", str(e))
-            failed_objects += 1
-            logging.error(f"Error processing object {obj.id}: {str(e)}")
-            
-        finally:
-            processing_duration = time.time() - obj_start_time
-            processing_durations.append(processing_duration)
-            
-            span.set_attribute("processing_time_seconds", processing_duration)
-            span.end()
+                    # As an example, I'm assuming you might want to save to Minio as with the previous endpoint.
+                    object_name = f"streaming_object_{index}.json"
+                    upload_data_to_minio.upload_data_to_minio(STREAMING_BUCKET_NAME, data_json, object_name, MINIO_BASE_URL, MINIO_ACCESS_KEY, MINIO_SECRET_KEY)
 
-    avg_processing_time = sum(processing_durations) / total_size
-    total_time = time.time() - start_time
-    
-    metrics = {
-        "total_objects_processed": total_size,
-        "successful_objects": successful_objects,
-        "failed_objects": failed_objects,
-        "average_processing_time_seconds": avg_processing_time,
-        "total_processing_time_seconds": total_time
-    }
-    
-    logging.info(f"Metrics: {metrics}")
-    
-    return {"status": "done", "metrics": metrics}
+                    # Get the current timestamp
+                    current_timestamp = time.time()
+
+                    # Set custom attributes on the span
+                    data_span.set_attribute("object_id", index)
+                    data_span.set_attribute("status", "data_streamed")
+                    data_span.set_attribute("timestamp", current_timestamp)
+
+                    # Notify Kafka about this individual object
+                    kafka_utils.post_to_kafka_topic(KAFKA_REST_PROXY_URL, 'customer-domain-stream-data', {
+                        "status": "data_streamed",
+                        "data_location": f"{MINIO_BASE_URL}",
+                        "object_id": index,
+                        "timestamp": current_timestamp
+                    })
+
+                    logger.info(f"Streamed and saved object {index} to Minio.")
+
+                except Exception as e:
+                    with tracer.start_as_current_span("error_handling") as error_span:
+                        # Error handling
+                        error_span.set_attribute("object_id", index)
+                        error_span.set_attribute("status", "streaming_failed")
+                        error_span.set_attribute("error", str(e))
+                        error_span.set_attribute("timestamp", current_timestamp)
+
+                        # Notify Kafka of error
+                        kafka_utils.post_to_kafka_topic(KAFKA_REST_PROXY_URL, 'customer-domain-stream-data-error', {
+                            "status": "streaming_failed",
+                            "error": str(e),
+                            "object_id": index,
+                            "timestamp": current_timestamp
+                        })
+
+                        logger.error(f"An error occurred while streaming object {index}: {e}")
+                        raise HTTPException(status_code=500, detail=f"An error occurred while streaming object {index}: {e}")
+
+    logger.info(f"Finished streaming {len(streaming_data)} data objects to Minio.")
+    return {"status": f"Streamed {len(streaming_data)} data objects to Minio."}

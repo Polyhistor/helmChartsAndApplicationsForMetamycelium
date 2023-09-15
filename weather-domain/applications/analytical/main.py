@@ -96,6 +96,16 @@ async def startup_event():
 
     subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(data_discovery_consumer_base_url, ["data-discovery"])
 
+    # Consumer for customer-domain-stream
+    url = "http://localhost/kafka-rest-proxy/consumers/customer-domain-stream-consumer/"
+    data["name"] = "customer-domain-stream-consumer-instance"
+    response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
+
+    global customer_domain_stream_consumer_base_url
+    customer_domain_stream_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
+
+    subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(customer_domain_stream_consumer_base_url, ["customer-domain-stream"])
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -113,6 +123,11 @@ async def shutdown_event():
     data_discovery_consumer_url = data_discovery_consumer_base_url
     response = requests.delete(data_discovery_consumer_url)
     print(f"Data discovery consumer deleted with status code {response.status_code}")
+
+    global customer_domain_stream_consumer_base_url
+    customer_domain_stream_consumer_url = customer_domain_stream_consumer_base_url
+    response = requests.delete(customer_domain_stream_consumer_url)
+    print(f"Customer domain stream consumer deleted with status code {response.status_code}")
 
 
 @app.get("/")
@@ -260,3 +275,42 @@ async def retrieve_metadata_from_data_discovery(background_tasks: BackgroundTask
 
 
 
+@app.get("/consume-customer-domain-stream")
+async def consume_customer_domain_stream(background_tasks: BackgroundTasks):
+    
+    with tracer.start_as_current_span("consume-customer-domain-stream", kind=SpanKind.SERVER) as span:
+
+        if customer_domain_stream_consumer_base_url is None:
+            span.set_attribute("error", True)
+            span.set_attribute("error_details", "Consumer has not been initialized")
+            return {"status": "Consumer has not been initialized. Please try again later."}
+
+        url = customer_domain_stream_consumer_base_url + "/records"
+        headers = {"Accept": "application/vnd.kafka.binary.v2+json"}
+
+        ensure_table_exists.ensure_table_exists()
+
+        def consume_customer_domain_records():
+            global storage_info
+            
+            response = requests.get(url, headers=headers)
+            if response.status_code != 200:
+                span.set_attribute("error", True)
+                span.set_attribute("error_details", f"GET /records/ did not succeed: {response.text}")
+                raise Exception(f"GET /records/ did not succeed: {response.text}")
+            else:
+                records = response.json()
+                for record in records:
+                    # Decoding and processing logic goes here...
+                    # This will depend on the structure and purpose of the data being streamed from customer domain
+                    
+                    # Sample decoding
+                    decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
+                    value_obj = json.loads(decoded_value_json)
+                    
+                    # Rest of processing...
+
+        background_tasks.add_task(consume_customer_domain_records)
+        span.add_event("Started consuming records from customer domain stream in the background")
+        
+    return {"status": "Consuming records from customer domain stream in the background"}
