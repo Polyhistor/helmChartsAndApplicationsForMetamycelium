@@ -5,6 +5,7 @@ from minio import Minio
 import requests
 import json
 import base64
+from typing import List, Dict
 import math
 import logging
 import time 
@@ -271,13 +272,13 @@ async def stream_domains_data(chunk_size: int = 1000):  # Adjust default chunk s
 
     with tracer.start_as_current_span("stream_domains_data_span") as span:
         # Fetch data from SQLite
-        all_data = fetch_all_customer_data_from_sqlite()
+        all_data = fetch_all_customer_data_from_sqlite.fetch_all_customer_data_from_sqlite()
         logger.info(f"Starting to stream {len(all_data)} data objects.")
 
         for record in all_data:
-            object_id = record['id']
-            data = record['data']
-            data_hash = record['data_hash']
+            object_id = record[0]
+            data = record[1]
+            data_hash = record[2]
 
             # Split large JSON data into smaller chunks
             chunks = [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
