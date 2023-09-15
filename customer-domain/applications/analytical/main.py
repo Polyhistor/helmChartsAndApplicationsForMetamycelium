@@ -18,14 +18,6 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 app = FastAPI()
 FastAPIInstrumentor.instrument_app(app)
 
-# Kafka configuration
-KAFKA_BROKER_URL = 'localhost:9092'
-producer_config = {
-    'bootstrap.servers': KAFKA_BROKER_URL,
-}
-
-producer = Producer(producer_config)
-
 # Initialize logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
