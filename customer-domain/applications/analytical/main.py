@@ -5,6 +5,7 @@ from minio import Minio
 import requests
 import json
 import base64
+import math
 import logging
 import time 
 from confluent_kafka import Producer
@@ -265,61 +266,73 @@ def delivery_report(err, msg):
 
 
 @app.get('/stream-domains-data')
-async def stream_domains_data():
+async def stream_domains_data(chunk_size: int = 1000):  # Adjust default chunk size as required
     tracer = trace.get_tracer(__name__)
 
-    with tracer.start_as_current_span("stream_domains_data_span") as span:  # start a span
-        # Assume that you have some method to fetch data you want to stream.
-        streaming_data = fetch_streaming_data()
+    with tracer.start_as_current_span("stream_domains_data_span") as span:
+        # Fetch data from SQLite
+        all_data = fetch_all_customer_data_from_sqlite()
+        logger.info(f"Starting to stream {len(all_data)} data objects.")
 
-        logger.info(f"Starting to process {len(streaming_data)} streaming data objects.")
-        
-        for index, data_obj in enumerate(streaming_data):
-            with tracer.start_as_current_span(f"process_streaming_object_{index}") as data_span:
-                try:
-                    # Convert individual data object to JSON format
-                    data_json = json.dumps(data_obj)
+        for record in all_data:
+            object_id = record['id']
+            data = record['data']
+            data_hash = record['data_hash']
 
-                    # As an example, I'm assuming you might want to save to Minio as with the previous endpoint.
-                    object_name = f"streaming_object_{index}.json"
-                    upload_data_to_minio.upload_data_to_minio(STREAMING_BUCKET_NAME, data_json, object_name, MINIO_BASE_URL, MINIO_ACCESS_KEY, MINIO_SECRET_KEY)
+            # Split large JSON data into smaller chunks
+            chunks = [data[i:i + chunk_size] for i in range(0, len(data), chunk_size)]
+            total_chunks = len(chunks)
 
-                    # Get the current timestamp
-                    current_timestamp = time.time()
+            for index, chunk in enumerate(chunks):
+                with tracer.start_as_current_span(f"process_streaming_object_{object_id}_chunk_{index}") as data_span:
+                    try:
+                        # Convert individual chunk to JSON format
+                        chunk_json = json.dumps({
+                            'id': object_id,
+                            'chunk': chunk,
+                            'chunk_index': index,
+                            'total_chunks': total_chunks,
+                            'data_hash': data_hash
+                        })
 
-                    # Set custom attributes on the span
-                    data_span.set_attribute("object_id", index)
-                    data_span.set_attribute("status", "data_streamed")
-                    data_span.set_attribute("timestamp", current_timestamp)
+                        # Get current timestamp
+                        current_timestamp = time.time()
 
-                    # Notify Kafka about this individual object
-                    kafka_utils.post_to_kafka_topic(KAFKA_REST_PROXY_URL, 'customer-domain-stream-data', {
-                        "status": "data_streamed",
-                        "data_location": f"{MINIO_BASE_URL}",
-                        "object_id": index,
-                        "timestamp": current_timestamp
-                    })
+                        # Set custom attributes on the span
+                        data_span.set_attribute("object_id", object_id)
+                        data_span.set_attribute("chunk_index", index)
+                        data_span.set_attribute("status", "data_streamed")
+                        data_span.set_attribute("timestamp", current_timestamp)
 
-                    logger.info(f"Streamed and saved object {index} to Minio.")
-
-                except Exception as e:
-                    with tracer.start_as_current_span("error_handling") as error_span:
-                        # Error handling
-                        error_span.set_attribute("object_id", index)
-                        error_span.set_attribute("status", "streaming_failed")
-                        error_span.set_attribute("error", str(e))
-                        error_span.set_attribute("timestamp", current_timestamp)
-
-                        # Notify Kafka of error
-                        kafka_utils.post_to_kafka_topic(KAFKA_REST_PROXY_URL, 'customer-domain-stream-data-error', {
-                            "status": "streaming_failed",
-                            "error": str(e),
-                            "object_id": index,
+                        # Notify Kafka about this chunk
+                        kafka_utils.post_to_kafka_topic(KAFKA_REST_PROXY_URL, 'customer-domain-stream-data', {
+                            "status": "data_streamed",
+                            "data": chunk_json,
+                            "object_id": object_id,
                             "timestamp": current_timestamp
                         })
 
-                        logger.error(f"An error occurred while streaming object {index}: {e}")
-                        raise HTTPException(status_code=500, detail=f"An error occurred while streaming object {index}: {e}")
+                        logger.info(f"Streamed object {object_id} chunk {index} to Kafka.")
 
-    logger.info(f"Finished streaming {len(streaming_data)} data objects to Minio.")
-    return {"status": f"Streamed {len(streaming_data)} data objects to Minio."}
+                    except Exception as e:
+                        with tracer.start_as_current_span("error_handling") as error_span:
+                            # Error handling
+                            error_span.set_attribute("object_id", object_id)
+                            error_span.set_attribute("chunk_index", index)
+                            error_span.set_attribute("status", "streaming_failed")
+                            error_span.set_attribute("error", str(e))
+                            error_span.set_attribute("timestamp", current_timestamp)
+
+                            # Notify Kafka of error
+                            kafka_utils.post_to_kafka_topic(KAFKA_REST_PROXY_URL, 'customer-domain-stream-data-error', {
+                                "status": "streaming_failed",
+                                "error": str(e),
+                                "object_id": object_id,
+                                "chunk_index": index,
+                                "timestamp": current_timestamp
+                            })
+
+                            logger.error(f"An error occurred while streaming object {object_id} chunk {index}: {e}")
+                            raise HTTPException(status_code=500, detail=f"An error occurred while streaming object {object_id} chunk {index}: {e}")
+
+        logger.info(f"Finished streaming data objects to Kafka.")
