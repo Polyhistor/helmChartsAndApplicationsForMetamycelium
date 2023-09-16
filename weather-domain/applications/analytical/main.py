@@ -2,6 +2,7 @@ from fastapi import FastAPI, BackgroundTasks
 from minio import Minio
 import requests
 import json
+import time 
 import base64
 from utilities import ensure_table_exists, insert_into_db, fetch_data_from_minio, save_data_to_sqlite, subscribe_to_kafka_consumer, create_kafka_consumer
 from utilities.kafka_rest_proxy_exporter import KafkaRESTProxyExporter
@@ -20,7 +21,7 @@ SERVICE_NAME = "WEATHER_DOMAIN_ANALYTICAL_SERVICE"
 SERVICE_VERSION = "1.0.0"
 ENVIRONMENT = "production"
 KAFKA_REST_PROXY_URL = "http://localhost/kafka-rest-proxy"
-
+buffered_data = ""
 
 # Create two global variables to store the base URLs of each consumer
 operational_data_consumer_base_url = None
@@ -104,7 +105,7 @@ async def startup_event():
     global customer_domain_stream_consumer_base_url
     customer_domain_stream_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
 
-    subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(customer_domain_stream_consumer_base_url, ["customer-domain-stream"])
+    subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(customer_domain_stream_consumer_base_url, ["customer-domain-stream-data"])
 
 
 @app.on_event("shutdown")
@@ -274,7 +275,6 @@ async def retrieve_metadata_from_data_discovery(background_tasks: BackgroundTask
     return {"status": "Started processing records from data-discovery Kafka topic in the background."}
 
 
-
 @app.get("/consume-customer-domain-stream")
 async def consume_customer_domain_stream(background_tasks: BackgroundTasks):
     
@@ -291,24 +291,39 @@ async def consume_customer_domain_stream(background_tasks: BackgroundTasks):
         ensure_table_exists.ensure_table_exists()
 
         def consume_customer_domain_records():
-            global storage_info
-            
-            response = requests.get(url, headers=headers)
-            if response.status_code != 200:
-                span.set_attribute("error", True)
-                span.set_attribute("error_details", f"GET /records/ did not succeed: {response.text}")
-                raise Exception(f"GET /records/ did not succeed: {response.text}")
-            else:
+            global buffered_data
+            while True:  # Continuously consume messages
+                response = requests.get(url, headers=headers)
+                
+                if response.status_code != 200:
+                    span.set_attribute("error", True)
+                    span.set_attribute("error_details", f"GET /records/ did not succeed: {response.text}")
+                    raise Exception(f"GET /records/ did not succeed: {response.text}")
+
                 records = response.json()
+                if not records:  # No new records to process
+                    time.sleep(5)  # Sleep for a short duration before checking again
+                    continue
+
+                print(f"Processing {len(records)} records from the stream...")
+                
                 for record in records:
-                    # Decoding and processing logic goes here...
-                    # This will depend on the structure and purpose of the data being streamed from customer domain
+                    # Check for the presence of 'data' key in the record
+                    if 'data' not in record:
+                        print(f"Skipped a record without a 'data' key: {record}")
+                        continue
                     
-                    # Sample decoding
-                    decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
-                    value_obj = json.loads(decoded_value_json)
-                    
-                    # Rest of processing...
+                    outer_data = record['data']
+                    inner_data = json.loads(outer_data)
+                    chunk = inner_data['chunk']
+                    buffered_data += base64.b64decode(chunk).decode('utf-8')  # Add chunk to buffer
+
+                    try:
+                        data = json.loads(buffered_data)  # Try parsing the buffered data
+                        save_data_to_sqlite.save_data_to_sqlite(buffered_data, 'weather_domain.db')
+                        buffered_data = ""  # Clear the buffer since data was successfully parsed and saved
+                    except json.JSONDecodeError:
+                        continue  # If parsing fails, continue buffering until a valid JSON object/array is received
 
         background_tasks.add_task(consume_customer_domain_records)
         span.add_event("Started consuming records from customer domain stream in the background")
