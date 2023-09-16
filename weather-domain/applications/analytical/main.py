@@ -320,7 +320,7 @@ async def consume_customer_domain_stream(background_tasks: BackgroundTasks):
 
                     try:
                         data = json.loads(buffered_data)  # Try parsing the buffered data
-                        save_data_to_sqlite.save_data_to_sqlite(buffered_data, 'weather_domain.db')
+                        save_data_to_sqlite.save_data_to_sqlite(buffered_data, 'weather_domain_stream_data.db')
                         buffered_data = ""  # Clear the buffer since data was successfully parsed and saved
                     except json.JSONDecodeError:
                         continue  # If parsing fails, continue buffering until a valid JSON object/array is received
