@@ -1,9 +1,17 @@
-const express = require('express');
-const bodyParser = require('body-parser');
-const sqlite3 = require('sqlite3').verbose();
+import express from 'express';
+import bodyParser from 'body-parser';
+import sqlitePackage from 'sqlite3';
+const { verbose } = sqlitePackage;
+const sqlite3 = verbose();
+import path from 'path';
+import axios from 'axios';
+import KcAdminClient from '@keycloak/keycloak-admin-client';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+
 const app = express();
-const path = require('path')
-const axios = require('axios');
 
 const KAFKA_PROXY_URL = 'http://localhost/kafka-rest-proxy';
 const KAFKA_TOPIC = 'data-discovery';
@@ -14,6 +22,12 @@ app.use(express.static('public'));
 // Define your template engine
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+
+// Initialising Keycloak
+const adminClient = new KcAdminClient({
+    baseUrl: 'http://localhost/keycloak/', 
+    realmName: 'master'
+})
 
 // Initialize SQLite database
 let db = new sqlite3.Database('./metadata.db', (err) => {
@@ -108,3 +122,17 @@ app.get('/publish-metadata', async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+
+app.get('/keycloak-users', async (req, res) => {
+    await adminClient.auth({
+        username: 'admin-lichen', 
+        password: 'admin123', 
+        grantType: 'password', 
+        clientId: 'admin-lichen'
+    })
+
+    const users = await adminClient.users.find()
+
+    console.log();
+
+})
