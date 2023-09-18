@@ -1,4 +1,4 @@
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI, BackgroundTasks, HTTPException
 from minio import Minio
 import requests
 import json
@@ -189,6 +189,20 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
         span.add_event("Started consuming records in the background")
         
     return {"status": "Consuming records in the background"}
+
+@app.get("/register-data-to-data-lichen")
+async def retrieve_and_save_data():
+    global storage_info
+    print(storage_info)
+ 
+    if not storage_info:
+        raise HTTPException(404, "Storage info not found")
+
+    try:
+        register_metadata_to_data_lichen.register_metadata_to_data_lichen()
+        return {"status": "Data successfully retrieved and saved to 'customer_data.db'"}
+    except ResponseError as err:
+        raise HTTPException(status_code=500, detail=f"An error occurred while fetching the data: {err}")
 
 @app.get("/retrieve-data-from-customer-domain")
 async def retrieve_data_from_customer_domain(background_tasks: BackgroundTasks):

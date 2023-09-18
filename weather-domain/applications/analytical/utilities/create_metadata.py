@@ -1,7 +1,9 @@
-import datetime 
-import uuid
+from datetime import datetime
 
-def create_metadata(actual_time, processing_duration, data_str, service_address):
+SERVICE_ADDRESS = "http://localhost:8005"
+SERVICE_UNIQUE_IDENTIFIER = "f4a283d4-5c0b-4e9f-a3b5-c16b92c1e6b4"
+
+def create_metadata(actual_time, processing_duration, data_str):
     total_rows = len(data_str.split('\n'))
     missing_data_points = data_str.count(', ,') + data_str.count(',,')
     
@@ -11,9 +13,9 @@ def create_metadata(actual_time, processing_duration, data_str, service_address)
     accuracy = 100 - (missing_data_points / total_rows * 100)
 
     return {
-        "serviceAddress": service_address,
-        "serviceName": "Weather domain data",
-        "uniqueIdentifier": str(uuid.uuid4()),
+        "serviceAddress": SERVICE_ADDRESS,
+        "serviceName": "Customer domain data",
+        "uniqueIdentifier": SERVICE_UNIQUE_IDENTIFIER,
         "completeness": completeness,
         "validity": validity,
         "accuracy": accuracy,
