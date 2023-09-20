@@ -1,20 +1,20 @@
-import requests 
+import requests
 import json
 
 def create_kafka_consumer(url, headers, data):
-    try:
-        response = requests.post(url, headers=headers, data=json.dumps(data))
-        response.raise_for_status()
-    except requests.exceptions.HTTPError as e:
-        if response.status_code == 409:
-            print("Kafka consumer already exists. Fetching its details...")
-            # Assuming you have an endpoint to fetch details of an existing consumer.
-            # You might need to adjust this to match your setup.
-            consumer_detail_response = requests.get(url + data["name"], headers=headers)
-            return consumer_detail_response.json()
-        else:
-            raise Exception("Failed to create Kafka consumer: " + str(e))
+    response = requests.post(url, headers=headers, data=json.dumps(data))
+    
+    if response.status_code == 200:  # Successfully created
+        return {
+            'base_uri': response.json()['base_uri'],
+            'message': 'Kafka consumer created successfully'
+        }
+    elif response.status_code == 409:  # Already exists
+        # Construct base_uri for the existing consumer
+        base_uri = f"{url}/instances/{data['name']}"
+        return {
+            'base_uri': base_uri,
+            'message': 'Kafka consumer already exists.'
+        }
     else:
-        print("Kafka consumer created successfully")
-        print(response.json())
-        return response.json()
+        raise Exception(f"Failed to create Kafka consumer. Status Code: {response.status_code}. Error: {response.text}")

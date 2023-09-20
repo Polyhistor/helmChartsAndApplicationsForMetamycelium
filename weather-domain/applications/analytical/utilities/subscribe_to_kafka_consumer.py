@@ -3,11 +3,14 @@ import json
 
 def subscribe_to_kafka_consumer(base_url, topics):
     url = f"{base_url}/subscription"
+    print(url)
+
     headers = {'Content-Type': 'application/vnd.kafka.v2+json'}
     data = {"topics": topics}
+    print(data)
 
     try:
-        response = requests.post(url, headers=headers, data=json.dumps(data), timeout=10)
+        response = requests.post(url, headers=headers, data=json.dumps(data))
         response.raise_for_status()  # Will raise an HTTPError if the HTTP request returned an unsuccessful status code
 
         if response.status_code == 204:

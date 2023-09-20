@@ -56,7 +56,6 @@ minio_client = Minio(
     secure=False
 )
 
-
 @app.on_event("startup")
 async def startup_event():
     url = f"{KAFKA_REST_PROXY_URL}/consumers/customer-domain-operational-data-consumer/"
@@ -90,6 +89,7 @@ async def startup_event():
 
         # Subscribe the consumer to the topic
         url = consumer_base_url + "/subscription"
+        print(url)
         headers = {'Content-Type': 'application/vnd.kafka.v2+json'}
         data = {"topics": ["domain-customer-operational-data"]}  # Adjusted the topic name here
         response = requests.post(url, headers=headers, data=json.dumps(data))
@@ -97,8 +97,6 @@ async def startup_event():
             raise Exception(
                 "Failed to subscribe consumer to topic: " + response.text)
         
-
-
 @app.on_event("shutdown")
 async def shutdown_event():
     url = consumer_base_url
@@ -108,11 +106,9 @@ async def shutdown_event():
     # Shutdown OpenTelemetry
     trace.get_tracer_provider().shutdown()
 
-
 @app.get("/")
 async def main_function(): 
     return "welcome to the customer domain analytical service"  
-
 
 # this endpoint should only run after the startup event has succesfully run
 @app.get("/subscribe-to-operational-data-and-store-addresses")
@@ -181,7 +177,6 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
         background_tasks.add_task(consume_records)
         return {"status": "Consuming records in the background"}
 
-
 @app.get("/register-data-to-data-lichen")
 async def retrieve_and_save_data():
     global storage_info
@@ -195,7 +190,6 @@ async def retrieve_and_save_data():
         return {"status": "Data successfully retrieved and saved to 'customer_data.db'"}
     except ResponseError as err:
         raise HTTPException(status_code=500, detail=f"An error occurred while fetching the data: {err}")
-
 
 @app.get('/publish-domains-data')
 async def publish_domains_data():
@@ -264,7 +258,6 @@ def delivery_report(err, msg):
         print('Message delivery failed: {}'.format(err))
     else:
         print('Message delivered to {} [{}]'.format(msg.topic(), msg.partition()))
-
 
 @app.get('/stream-domains-data')
 async def stream_domains_data(chunk_size: int = 1000):  # Adjust default chunk size as required

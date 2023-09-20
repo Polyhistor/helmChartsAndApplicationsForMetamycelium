@@ -1,10 +1,11 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from minio import Minio
+from xmlrpc.client import ResponseError
 import requests
 import json
 import time 
 import base64
-from utilities import ensure_table_exists, insert_into_db, fetch_data_from_minio, save_data_to_sqlite, subscribe_to_kafka_consumer, create_kafka_consumer
+from utilities import ensure_table_exists, insert_into_db, fetch_data_from_minio, save_data_to_sqlite, subscribe_to_kafka_consumer, create_kafka_consumer, register_metadata_to_data_lichen
 from utilities.kafka_rest_proxy_exporter import KafkaRESTProxyExporter
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
@@ -66,47 +67,51 @@ async def startup_event():
         "auto.commit.enable": "false"
     }
 
-    # Consumer for domain-weather-operational-data
-    url = "http://localhost/kafka-rest-proxy/consumers/weather-domain-operational-data-consumer/"
+    # Consumer group for domain-weather-operational-data
+    url = f"{KAFKA_REST_PROXY_URL}/consumers/weather-domain-operational-data-consumers/" 
+
+    # The individual consumer created for the group
     data["name"] = "weather-domain-operational-data-consumer-instance"
+    
     response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
+
+    print(response)
     
     global operational_data_consumer_base_url
-    
-    operational_data_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
+    operational_data_consumer_base_url = response['base_uri']
     
     subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(operational_data_consumer_base_url, ["domain-weather-operational-data"])
 
     # Consumer for customer-domain-data
-    url = "http://localhost/kafka-rest-proxy/consumers/customer-domain-data-consumer/"
-    data["name"] = "customer-domain-data-consumer-instance"
-    response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
+    # url = "http://localhost/kafka-rest-proxy/consumers/customer-domain-data-consumer/"
+    # data["name"] = "customer-domain-data-consumer-instance"
+    # response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
 
-    global customer_domain_data_consumer_base_url
-    customer_domain_data_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
 
-    subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(customer_domain_data_consumer_base_url, ["customer-domain-data"])
+    # global customer_domain_data_consumer_base_url
+    # customer_domain_data_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
+
+    # subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(customer_domain_data_consumer_base_url, ["customer-domain-data"])
     
      # Consumer for data-discovery
-    url = "http://localhost/kafka-rest-proxy/consumers/data-discovery-consumer/"
-    data["name"] = "data-discovery-consumer-instance"
-    response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
+    # url = "http://localhost/kafka-rest-proxy/consumers/data-discovery-consumer/"
+    # data["name"] = "data-discovery-consumer-instance"
+    # response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
 
-    global data_discovery_consumer_base_url
-    data_discovery_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
+    # global data_discovery_consumer_base_url
+    # data_discovery_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
 
-    subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(data_discovery_consumer_base_url, ["data-discovery"])
+    # subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(data_discovery_consumer_base_url, ["data-discovery"])
 
-    # Consumer for customer-domain-stream
-    url = "http://localhost/kafka-rest-proxy/consumers/customer-domain-stream-consumer/"
-    data["name"] = "customer-domain-stream-consumer-instance"
-    response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
+    # # Consumer for customer-domain-stream
+    # url = "http://localhost/kafka-rest-proxy/consumers/customer-domain-stream-consumer/"
+    # data["name"] = "customer-domain-stream-consumer-instance"
+    # response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
 
-    global customer_domain_stream_consumer_base_url
-    customer_domain_stream_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
+    # global customer_domain_stream_consumer_base_url
+    # customer_domain_stream_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
 
-    subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(customer_domain_stream_consumer_base_url, ["customer-domain-stream-data"])
-
+    # subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(customer_domain_stream_consumer_base_url, ["customer-domain-stream-data"])
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -130,20 +135,25 @@ async def shutdown_event():
     response = requests.delete(customer_domain_stream_consumer_url)
     print(f"Customer domain stream consumer deleted with status code {response.status_code}")
 
-
 @app.get("/")
 async def main_function(): 
     return "welcome to the weather domain analytical service"
 
 @app.get("/subscribe-to-operational-data")
 async def consume_kafka_message(background_tasks: BackgroundTasks):
-    global operational_data_consumer_base_url
+    tracer = trace.get_tracer(__name__)
 
-    with tracer.start_as_current_span("consume-kafka-message", kind=SpanKind.SERVER) as span:
-
+    # Start a new span for this endpoint
+    with tracer.start_as_current_span("consume-kafka-message"):
+        
+        # Verify Consumer existence and status before proceeding
+        if operational_data_consumer_base_url:  # Check if operational_data_consumer_base_url is initialized
+            response_consumer = requests.get(f"{operational_data_consumer_base_url}/status")
+            if response_consumer.status_code != 200:
+                await startup_event()
+        
+        # If after checking the operational_data_consumer_base_url is still None, return an error message
         if operational_data_consumer_base_url is None:
-            span.set_attribute("error", True)
-            span.set_attribute("error_details", "Consumer has not been initialized")
             return {"status": "Consumer has not been initialized. Please try again later."}
 
         url = operational_data_consumer_base_url + "/records"
@@ -151,44 +161,42 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
 
         ensure_table_exists.ensure_table_exists()
 
+        # You can use the tracer within the consume_records function to instrument finer details.
         def consume_records():
-            global storage_info
-            
-            response = requests.get(url, headers=headers)
-            if response.status_code != 200:
-                span.set_attribute("error", True)
-                span.set_attribute("error_details", f"GET /records/ did not succeed: {response.text}")
-                raise Exception(f"GET /records/ did not succeed: {response.text}")
-            else:
-                records = response.json()
-                for record in records:
-                    decoded_key = base64.b64decode(record['key']).decode('utf-8') if record['key'] else None
-                    decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
-                    value_obj = json.loads(decoded_value_json)
+            with tracer.start_as_current_span("consume_records"):
+                global storage_info
 
-                    storage_info = {
-                    "distributedStorageAddress": value_obj.get('distributedStorageAddress', ''),
-                    "minio_access_key": value_obj.get('minio_access_key', ''),
-                    "minio_secret_key": value_obj.get('minio_secret_key', ''),
-                    "bucket_name": value_obj.get('bucket_name', ''),
-                    "object_name": value_obj.get('object_name', '')
-                    }
+                response = requests.get(url, headers=headers)
+                if response.status_code != 200:
+                    raise Exception(f"GET /records/ did not succeed: {response.text}")
+                else:
+                    records = response.json()
+                    for record in records:
+                        decoded_key = base64.b64decode(record['key']).decode('utf-8') if record['key'] else None
+                        decoded_value_json = base64.b64decode(record['value']).decode('utf-8')
+                        value_obj = json.loads(decoded_value_json)
 
-                    # Insert the storage info into the SQLite database
-                    insert_into_db.insert_into_db(storage_info)
+                        storage_info = {
+                            "distributedStorageAddress": value_obj.get('distributedStorageAddress', ''),
+                            "minio_access_key": value_obj.get('minio_access_key', ''),
+                            "minio_secret_key": value_obj.get('minio_secret_key', ''),
+                            "bucket_name": value_obj.get('bucket_name', ''),
+                            "object_name": value_obj.get('object_name', '')
+                        }
 
-                    span.add_event(f"Consumed record with key {decoded_key} and value {value_obj['message']} from topic {record['topic']}")
-                    if 'distributedStorageAddress' in value_obj:
-                        span.add_event(f"Distributed storage address: {value_obj['distributedStorageAddress']}")
-                        span.add_event(f"Minio access key: {value_obj['minio_access_key']}")
-                        span.add_event(f"Minio secret key: {value_obj['minio_secret_key']}")
-                        span.add_event(f"Bucket name: {value_obj['bucket_name']}")
-                        span.add_event(f"Object name: {value_obj['object_name']}")
+                        # Insert the storage info into the SQLite database
+                        insert_into_db.insert_into_db(storage_info)
+
+                        print(f"Consumed record with key {decoded_key} and value {value_obj['message']} from topic {record['topic']}")
+                        if 'distributedStorageAddress' in value_obj:
+                            print(f"Distributed storage address: {value_obj['distributedStorageAddress']}")
+                            print(f"Minio access key: {value_obj['minio_access_key']}")
+                            print(f"Minio secret key: {value_obj['minio_secret_key']}")
+                            print(f"Bucket name: {value_obj['bucket_name']}")
+                            print(f"Object name: {value_obj['object_name']}")
 
         background_tasks.add_task(consume_records)
-        span.add_event("Started consuming records in the background")
-        
-    return {"status": "Consuming records in the background"}
+        return {"status": "Consuming records in the background"}
 
 @app.get("/register-data-to-data-lichen")
 async def retrieve_and_save_data():
@@ -206,7 +214,8 @@ async def retrieve_and_save_data():
 
 @app.get("/retrieve-data-from-customer-domain")
 async def retrieve_data_from_customer_domain(background_tasks: BackgroundTasks):
-    
+    print(customer_domain_data_consumer_base_url)
+
     with tracer.start_as_current_span("retrieve-data-from-customer-domain", kind=SpanKind.SERVER) as span:
         def process_records_from_kafka_topic():
             # 1. Listen to the Kafka topic for a new message
@@ -252,7 +261,6 @@ async def retrieve_data_from_customer_domain(background_tasks: BackgroundTasks):
         span.add_event("Started processing records from Kafka topic in the background")
         return {"status": "Started processing records from Kafka topic in the background."}
 
-
 @app.get("/retrieve-metadata-from-data-discovery")
 async def retrieve_metadata_from_data_discovery(background_tasks: BackgroundTasks):
     
@@ -287,7 +295,6 @@ async def retrieve_metadata_from_data_discovery(background_tasks: BackgroundTask
         span.add_event("Started processing records from data-discovery Kafka topic in the background")
         
     return {"status": "Started processing records from data-discovery Kafka topic in the background."}
-
 
 @app.get("/consume-customer-domain-stream")
 async def consume_customer_domain_stream(background_tasks: BackgroundTasks):
