@@ -5,13 +5,25 @@ def create_kafka_consumer(url, headers, data):
     response = requests.post(url, headers=headers, data=json.dumps(data))
     
     if response.status_code == 200:  # Successfully created
-        return {
-            'base_uri': response.json()['base_uri'],
-            'message': 'Kafka consumer created successfully'
-        }
+        response_json = response.json()
+        
+        if 'base_uri' in response_json:
+            base_uri = response_json['base_uri']
+            # Replace 'http://' with 'http://localhost/'
+            base_uri = base_uri.replace('http://', 'http://localhost/')
+            
+            return {
+                'base_uri': base_uri,
+                'message': 'Kafka consumer created successfully'
+            }
+        else:
+            raise Exception("Expected 'base_uri' key in the response but not found.")
     elif response.status_code == 409:  # Already exists
         # Construct base_uri for the existing consumer
         base_uri = f"{url}/instances/{data['name']}"
+        # Again, replace 'http://' with 'http://localhost/'
+        base_uri = base_uri.replace('http://', 'http://localhost/')
+        
         return {
             'base_uri': base_uri,
             'message': 'Kafka consumer already exists.'

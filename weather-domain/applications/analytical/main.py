@@ -74,8 +74,6 @@ async def startup_event():
     data["name"] = "weather-domain-operational-data-consumer-instance"
     
     response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
-
-    print(response)
     
     global operational_data_consumer_base_url
     operational_data_consumer_base_url = response['base_uri']
