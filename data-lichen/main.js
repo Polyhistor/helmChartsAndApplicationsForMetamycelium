@@ -26,13 +26,10 @@ app.use(session({
   
 // Initialising Keycloak
 const keycloakConfig = {
-    clientId: 'yourClientID',
-    bearerOnly: true,
+    clientId: 'data-lichen-client',
+    bearerOnly: false,
     serverUrl: 'http://localhost/keycloak/',
     realm: 'master',
-    credentials: {
-        secret: 'yourClientSecret'
-    }
 };
 
 const keycloak = new Keycloak({}, keycloakConfig);
