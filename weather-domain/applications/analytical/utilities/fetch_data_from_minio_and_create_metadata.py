@@ -15,13 +15,21 @@ def fetch_data_from_minio_and_create_metadata():
     print(f"Storage Info: {all_storage_info}")
     print(f'Total number of objects to receive: {len(all_storage_info)}')
 
-    print(all_storage_info)
-
     for storage_info in all_storage_info:
         print(f"Fetching data from Minio for storage: {storage_info}...")
-        data_str = fetch_data_from_minio.fetch_data_from_minio(storage_info)
+        
+        # Update dictionary keys to match function parameters
+        storage_info_updated = {
+            'distributed_storage_address': storage_info['distributedStorageAddress'],
+            'minio_access_key': storage_info['minio_access_key'],
+            'minio_secret_key': storage_info['minio_secret_key'],
+            'bucket_name': storage_info['bucket_name'],
+            'object_name': storage_info['object_name']
+        }
+        
+        data_str = fetch_data_from_minio.fetch_data_from_minio(**storage_info_updated)
         print(f"Saving data from storage {storage_info} to SQLite...")
-        save_data_to_sqlite.save_data_to_sqlite(data_str)
+        save_data_to_sqlite.save_data_to_sqlite(data_str, 'weather-domain-data.db')
 
 
     processing_duration = time.time() - start_time

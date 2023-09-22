@@ -81,35 +81,35 @@ async def startup_event():
     subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(operational_data_consumer_base_url, ["domain-weather-operational-data"])
 
     # Consumer for customer-domain-data
-    # url = "http://localhost/kafka-rest-proxy/consumers/customer-domain-data-consumer/"
-    # data["name"] = "customer-domain-data-consumer-instance"
-    # response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
+    url = "http://localhost/kafka-rest-proxy/consumers/customer-domain-data-consumer/"
+    data["name"] = "customer-domain-data-consumer-instance"
+    response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
 
 
-    # global customer_domain_data_consumer_base_url
-    # customer_domain_data_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
+    global customer_domain_data_consumer_base_url
+    customer_domain_data_consumer_base_url = response['base_uri']
 
-    # subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(customer_domain_data_consumer_base_url, ["customer-domain-data"])
+    subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(customer_domain_data_consumer_base_url, ["customer-domain-data"])
     
-     # Consumer for data-discovery
-    # url = "http://localhost/kafka-rest-proxy/consumers/data-discovery-consumer/"
-    # data["name"] = "data-discovery-consumer-instance"
-    # response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
+    #  Consumer for data-discovery
+    url = "http://localhost/kafka-rest-proxy/consumers/data-discovery-consumer/"
+    data["name"] = "data-discovery-consumer-instance"
+    response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
 
-    # global data_discovery_consumer_base_url
-    # data_discovery_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
+    global data_discovery_consumer_base_url
+    data_discovery_consumer_base_url = response['base_uri']
 
-    # subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(data_discovery_consumer_base_url, ["data-discovery"])
+    subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(data_discovery_consumer_base_url, ["data-discovery"])
 
-    # # Consumer for customer-domain-stream
-    # url = "http://localhost/kafka-rest-proxy/consumers/customer-domain-stream-consumer/"
-    # data["name"] = "customer-domain-stream-consumer-instance"
-    # response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
+    # Consumer for customer-domain-stream
+    url = "http://localhost/kafka-rest-proxy/consumers/customer-domain-stream-consumer/"
+    data["name"] = "customer-domain-stream-consumer-instance"
+    response = create_kafka_consumer.create_kafka_consumer(url, headers, data)
 
-    # global customer_domain_stream_consumer_base_url
-    # customer_domain_stream_consumer_base_url = response['base_uri'].replace('http://', 'http://localhost/')
+    global customer_domain_stream_consumer_base_url
+    customer_domain_stream_consumer_base_url = response['base_uri']
 
-    # subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(customer_domain_stream_consumer_base_url, ["customer-domain-stream-data"])
+    subscribe_to_kafka_consumer.subscribe_to_kafka_consumer(customer_domain_stream_consumer_base_url, ["customer-domain-stream-data"])
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -183,7 +183,7 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
                         }
 
                         # Insert the storage info into the SQLite database
-                        insert_into_db.insert_into_db(storage_info)
+                        insert_into_db.insert_into_db(storage_info, 'object_storage_address.db')
 
                         print(f"Consumed record with key {decoded_key} and value {value_obj['message']} from topic {record['topic']}")
                         if 'distributedStorageAddress' in value_obj:

@@ -5,13 +5,33 @@ const { verbose } = sqlitePackage;
 const sqlite3 = verbose();
 import path from 'path';
 import axios from 'axios';
-import KcAdminClient from '@keycloak/keycloak-admin-client';
-import { fileURLToPath } from 'url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import Keycloak from 'keycloak-connect';
 
 
 const app = express();
+
+// setting the session
+app.use(session({
+    secret: 'someSecret',
+    resave: false,
+    saveUninitialized: true
+  }));
+  
+// Initialising Keycloak
+const keycloakConfig = {
+    clientId: 'yourClientID',
+    bearerOnly: true,
+    serverUrl: 'http://localhost/keycloak/',
+    realm: 'master',
+    credentials: {
+        secret: 'yourClientSecret'
+    }
+};
+
+const keycloak = new Keycloak({}, keycloakConfig);
+
+// Middleware to protect routes
+app.use(keycloak.middleware());
 
 const KAFKA_PROXY_URL = 'http://localhost/kafka-rest-proxy';
 const KAFKA_TOPIC = 'data-discovery';
@@ -23,11 +43,7 @@ app.use(express.static('public'));
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// Initialising Keycloak
-const adminClient = new KcAdminClient({
-    baseUrl: 'http://localhost/keycloak/', 
-    realmName: 'master'
-})
+
 
 // Initialize SQLite database
 let db = new sqlite3.Database('./metadata.db', (err) => {
@@ -123,16 +139,6 @@ app.get('/publish-metadata', async (req, res) => {
     }
 });
 
-app.get('/keycloak-users', async (req, res) => {
-    await adminClient.auth({
-        username: 'admin-lichen', 
-        password: 'admin123', 
-        grantType: 'password', 
-        clientId: 'admin-lichen'
-    })
-
-    const users = await adminClient.users.find()
-
-    console.log();
-
-})
+app.get('/some-protected-route', keycloak.protect(), (req, res) => {
+    res.send('This is protected!');
+  });

@@ -14,7 +14,7 @@ def create_metadata(actual_time, processing_duration, data_str):
 
     return {
         "serviceAddress": SERVICE_ADDRESS,
-        "serviceName": "Customer domain data",
+        "serviceName": "Weather domain data",
         "uniqueIdentifier": SERVICE_UNIQUE_IDENTIFIER,
         "completeness": completeness,
         "validity": validity,
