@@ -1,14 +1,21 @@
 import express from 'express';
+import session from 'express-session';
 import bodyParser from 'body-parser';
 import sqlitePackage from 'sqlite3';
 const { verbose } = sqlitePackage;
 const sqlite3 = verbose();
 import path from 'path';
+import { fileURLToPath } from 'url';
 import axios from 'axios';
 import Keycloak from 'keycloak-connect';
 
 
 const app = express();
+
+// setting this because unlike common JS modules, ES module does not include __dirname by default in all modules
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+app.set('views', path.join(__dirname, 'views'));
 
 // setting the session
 app.use(session({
