@@ -16,6 +16,7 @@ const app = express();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 app.set('views', path.join(__dirname, 'views'));
+const memoryStore = new session.MemoryStore();
 
 // setting the session
 app.use(session({
@@ -26,13 +27,17 @@ app.use(session({
   
 // Initialising Keycloak
 const keycloakConfig = {
-    clientId: 'data-lichen-client',
-    bearerOnly: false,
-    serverUrl: 'http://localhost/keycloak/',
-    realm: 'master',
-};
+    realm: "master",
+    serverUrl: "http://localhost/keycloak/",
+    sslRequired: "external",
+    resource: "data-lichen-client",
+    credentials: {
+      "secret": "XwFsfqyy4BAI1mH7XN4JJ6EuI9brfz2h"
+    },
+    "confidential-port": 0
+  }
 
-const keycloak = new Keycloak({}, keycloakConfig);
+const keycloak = new Keycloak({store: memoryStore}, keycloakConfig);
 
 // Middleware to protect routes
 app.use(keycloak.middleware());
