@@ -10,13 +10,23 @@ import axios from 'axios';
 import Keycloak from 'keycloak-connect';
 import vault from 'node-vault';
 
-
 const app = express();
 
 // setting this because unlike common JS modules, ES module does not include __dirname by default in all modules
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 app.set('views', path.join(__dirname, 'views'));
+
+// setting Vault settings
+const vaultOptions = {
+    apiVersion: 'v1', // Vault API version
+    endpoint: 'http://localhost:8200', // Vault endpoint
+    token: 'root'
+  };
+  
+  const vaultClient = vault(vaultOptions);
+
+// setting the session for keycloak
 const memoryStore = new session.MemoryStore();
 
 // setting the session
@@ -152,3 +162,19 @@ app.get('/publish-metadata', async (req, res) => {
 app.get('/some-protected-route', keycloak.protect(), (req, res) => {
     res.send('This is protected!');
   });
+
+app.get('/get-secrets', async (req,res) => {
+    async function fetchSecretsFromVault() {
+        try {
+          const result = await vaultClient.read('secret/data/data-lichen-secret');
+          return result.data; // This will contain your secrets
+        } catch (error) {
+          console.error('Failed to fetch secrets from Vault:', error);
+          process.exit(1); // Exit the application if you can't fetch necessary secrets
+        }
+      }
+    
+      const secrets = await fetchSecretsFromVault()
+      console.log(secrets);
+
+})
