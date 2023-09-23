@@ -36,17 +36,29 @@ app.use(session({
     saveUninitialized: true
   }));
   
+//   realm: "master",
+//   serverUrl: "http://localhost/keycloak/",
+//   sslRequired: "external",
+//   resource: "data-lichen-client",
+//   credentials: {
+//     "secret": "XwFsfqyy4BAI1mH7XN4JJ6EuI9brfz2h"
+//   },
+//   "confidential-port": 0
+
+
+
+async function fetchSecretsFromVault() {
+try {
+    const result = await vaultClient.read('secret/data/data-lichen-secret');
+    return result.data.data; // This will contain your secrets
+} catch (error) {
+    console.error('Failed to fetch secrets from Vault:', error);
+    process.exit(1); // Exit the application if you can't fetch necessary secrets
+}
+}
+
 // Initialising Keycloak
-const keycloakConfig = {
-    realm: "master",
-    serverUrl: "http://localhost/keycloak/",
-    sslRequired: "external",
-    resource: "data-lichen-client",
-    credentials: {
-      "secret": "XwFsfqyy4BAI1mH7XN4JJ6EuI9brfz2h"
-    },
-    "confidential-port": 0
-  }
+const keycloakConfig = await fetchSecretsFromVault()
 
 const keycloak = new Keycloak({store: memoryStore}, keycloakConfig);
 
@@ -163,18 +175,20 @@ app.get('/some-protected-route', keycloak.protect(), (req, res) => {
     res.send('This is protected!');
   });
 
-app.get('/get-secrets', async (req,res) => {
-    async function fetchSecretsFromVault() {
-        try {
-          const result = await vaultClient.read('secret/data/data-lichen-secret');
-          return result.data; // This will contain your secrets
-        } catch (error) {
-          console.error('Failed to fetch secrets from Vault:', error);
-          process.exit(1); // Exit the application if you can't fetch necessary secrets
-        }
-      }
-    
-      const secrets = await fetchSecretsFromVault()
-      console.log(secrets);
+// This is a test endpoint, uncomment if needs be
 
-})
+// app.get('/get-secrets', async (req,res) => {
+//     async function fetchSecretsFromVault() {
+//         try {
+//           const result = await vaultClient.read('secret/data/data-lichen-secret');
+//           return result.data.data; // This will contain your secrets
+//         } catch (error) {
+//           console.error('Failed to fetch secrets from Vault:', error);
+//           process.exit(1); // Exit the application if you can't fetch necessary secrets
+//         }
+//       }
+    
+//       const secrets = await fetchSecretsFromVault()
+//       console.log(secrets);
+
+// })
