@@ -8,6 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import axios from 'axios';
 import Keycloak from 'keycloak-connect';
+import vault from 'node-vault';
 
 
 const app = express();
