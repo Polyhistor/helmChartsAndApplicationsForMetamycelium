@@ -2,7 +2,7 @@ from datetime import datetime
 
 SERVICE_ADDRESS = "http://localhost:8005"
 SERVICE_UNIQUE_IDENTIFIER = "f4a283d4-5c0b-4e9f-a3b5-c16b92c1e6b4"
-DATA_ADDRESS = "http://localhost:9001/minio/custom-domain-analytical-data/"
+DATA_ADDRESS = "http://localhost:9001/minio/weather-domain-analytical-data/"
 
 def create_metadata(actual_time, processing_duration, data_str):
     total_rows = len(data_str.split('\n'))
