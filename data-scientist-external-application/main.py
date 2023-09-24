@@ -11,12 +11,21 @@ from hashlib import sha256
 app = FastAPI()
 FastAPIInstrumentor.instrument_app(app)
 
+# Global variables
+SERVICE_ADDRESS = "http://localhost:8010"
+SERVICE_NAME = "DATA_SCIENTIST_APPLICATION"
+SERVICE_VERSION = "1.0.0"
+ENVIRONMENT = "production"
+KAFKA_REST_PROXY_URL = "http://localhost/kafka-rest-proxy"
+
 # Setting up the trace provider
 trace.set_tracer_provider(TracerProvider())
 
-# Other setup related to Kafka and OpenTelemetry (similar to your original service)
-# ...
+kafka_exporter = KafkaRESTProxyExporter(topic_name="telemetry-data", rest_proxy_url=KAFKA_REST_PROXY_URL, service_name=SERVICE_NAME, service_address=SERVICE_ADDRESS)
+span_processor = BatchSpanProcessor(kafka_exporter)
+trace.get_tracer_provider().add_span_processor(span_processor)
 
+# Setting up OpenTelemetry
 tracer = trace.get_tracer(__name__)
 
 @app.get("/")
