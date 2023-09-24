@@ -45,8 +45,6 @@ app.use(session({
 //   },
 //   "confidential-port": 0
 
-
-
 async function fetchSecretsFromVault() {
 try {
     const result = await vaultClient.read('secret/data/data-lichen-secret');
@@ -172,7 +170,7 @@ app.get('/publish-metadata', async (req, res) => {
 });
 
 app.get('/some-protected-route', keycloak.protect(), (req, res) => {
-    res.send('This is protected!');
+    res.send('This is protected!'); 
   });
 
 // This is a test endpoint, uncomment if needs be
