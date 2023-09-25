@@ -10,6 +10,12 @@ from minio import Minio
 import threading
 import time
 from hvac import Client
+import logging
+from fastapi.logger import logger
+
+# Initiating logging configuration
+logging.basicConfig(level=logging.INFO)
+logger.setLevel(logging.INFO)
 
 app = FastAPI()
 FastAPIInstrumentor.instrument_app(app)
@@ -37,6 +43,8 @@ MINIO_POOL_SIZE = 10
 executor = ThreadPoolExecutor(max_workers=MINIO_POOL_SIZE)
 
 def minio_fetch(storage_info):
+    print(storage_info["distributedStorageAddress"])
+
     with minio_lock:
         minio_client = Minio(
             storage_info["distributedStorageAddress"],
@@ -54,37 +62,41 @@ def minio_fetch(storage_info):
 
 @app.get("/")
 async def welcome():
+    logger.info("Welcome endpoint accessed")
     return "Welcome to the Data Scientist Query Service!"
 
 @app.get("/query-data/{data_location}")
 async def query_data(data_location: str):
     valid_data_locations = ["custom-domain-analytical-data", "weather-domain-analytical-data"]
     if data_location not in valid_data_locations:
+        logger.error(f"Invalid data location provided: {data_location}")
         raise HTTPException(status_code=400, detail="Invalid data location")
-
+    
+    logger.info(f"Fetching secrets for data_location: {data_location}")
     with tracer.start_as_current_span("retrieve_secrets") as span:
-        # Initialize Vault client with the provided 'root' token
-        client = Client(url='http://localhost:8200', token='root')  
+        client = Client(url='http://localhost:8200', token='root')
         read_response = client.secrets.kv.read_secret_version(path='Data-Scientist-User-Pass')
         
         if 'data' not in read_response or 'data' not in read_response['data']:
+            logger.error("Failed to retrieve secrets from Vault")
             raise HTTPException(status_code=500, detail="Unable to retrieve secrets from Vault")
+        
         secrets = read_response['data']['data']
-
-        print(secrets)
-
+    
+    logger.info("Fetching data from Minio")
     with tracer.start_as_current_span("query_processing") as span:
         storage_info = {
-            "distributedStorageAddress": "http://localhost:9001",
-            "minio_access_key": secrets["access_key"],
-            "minio_secret_key": secrets["secret_key"],
+            "distributedStorageAddress": "localhost:9001",
+            "minio_access_key": "minioadmin",
+            "minio_secret_key": "minioadmin",
             "bucket_name": data_location
         }
 
+        logger.info(f"Connecting to Minio with storage_info: {storage_info}")
         minio_client = Minio(
             storage_info["distributedStorageAddress"],
-            access_key=storage_info["minio_access_key"],
-            secret_key=storage_info["minio_secret_key"],
+            access_key= "minioadmin",
+            secret_key= "minioadmin",
             secure=False
         )
 
