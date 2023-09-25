@@ -63,12 +63,15 @@ async def query_data(data_location: str):
         raise HTTPException(status_code=400, detail="Invalid data location")
 
     with tracer.start_as_current_span("retrieve_secrets") as span:
-        client = Client(url='http://localhost:8200')  # Assuming Vault is at localhost:8200
-        # Add authentication method if required
+        # Initialize Vault client with the provided 'root' token
+        client = Client(url='http://localhost:8200', token='root')  
         read_response = client.secrets.kv.read_secret_version(path='Data-Scientist-User-Pass')
+        
         if 'data' not in read_response or 'data' not in read_response['data']:
             raise HTTPException(status_code=500, detail="Unable to retrieve secrets from Vault")
         secrets = read_response['data']['data']
+
+        print(secrets)
 
     with tracer.start_as_current_span("query_processing") as span:
         storage_info = {
@@ -97,5 +100,4 @@ async def query_data(data_location: str):
             })
 
         return {"objects": objects_list}
-
 
