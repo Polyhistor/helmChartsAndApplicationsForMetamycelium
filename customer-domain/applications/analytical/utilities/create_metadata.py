@@ -25,3 +25,6 @@ def create_metadata(actual_time, processing_duration, data_str):
         "processingTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # when the data was ingested or updated
         "processingDuration": f"{processing_duration:.2f} seconds"  # how long it took to process the data
     }
+
+
+
