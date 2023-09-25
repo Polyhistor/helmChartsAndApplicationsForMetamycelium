@@ -1,13 +1,15 @@
 from fastapi import FastAPI, HTTPException
-from utilities import fetch_data_from_sqlite
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.trace import SpanKind
 from utilities import KafkaRESTProxyExporter
+from concurrent.futures import ThreadPoolExecutor
+from minio import Minio
+import threading
 import time
-from hashlib import sha256
+from hvac import Client
 
 app = FastAPI()
 FastAPIInstrumentor.instrument_app(app)
@@ -29,50 +31,75 @@ trace.get_tracer_provider().add_span_processor(span_processor)
 # Setting up OpenTelemetry
 tracer = trace.get_tracer(__name__)
 
+# MinIO fetch utilities
+minio_lock = threading.Lock()
+MINIO_POOL_SIZE = 10
+executor = ThreadPoolExecutor(max_workers=MINIO_POOL_SIZE)
+
+def minio_fetch(storage_info):
+    with minio_lock:
+        minio_client = Minio(
+            storage_info["distributedStorageAddress"],
+            access_key=storage_info["minio_access_key"],
+            secret_key=storage_info["minio_secret_key"],
+            secure=False
+        )
+
+        data = minio_client.get_object(storage_info["bucket_name"], storage_info["object_name"])
+        chunks = []
+        for d in data.stream(32*1024):
+            chunks.append(d)
+        data_str = b''.join(chunks).decode('utf-8')
+        return data_str
+
 @app.get("/")
 async def welcome():
     return "Welcome to the Data Scientist Query Service!"
 
-@app.get("/query-data")
-async def query_data(query: str):
-    # Start a span to measure Secret Retrieval Latency (SRL)
+@app.get("/query-data/{data_location}")
+async def query_data(data_location: str):
+    valid_data_locations = ["custom-domain-analytical-data", "weather-domain-analytical-data"]
+    if data_location not in valid_data_locations:
+        raise HTTPException(status_code=400, detail="Invalid data location")
+
     with tracer.start_as_current_span("retrieve_secrets") as span:
-        span.set_attribute("operation", "retrieve_secrets")
-        start_time = time.time()
+        client = Client(url='http://localhost:8200')  # Assuming Vault is at localhost:8200
+        # Add authentication method if required
+        read_response = client.secrets.kv.read_secret_version(path='Data-Scientist-User-Pass')
+        if 'data' not in read_response or 'data' not in read_response['data']:
+            raise HTTPException(status_code=500, detail="Unable to retrieve secrets from Vault")
+        secrets = read_response['data']['data']
 
-        # Simulating a secret retrieval operation
-        # (you'd replace this with the actual operation to fetch the secret if it wasn't in memory)
-        time.sleep(0.01)
-        span.set_endtime(start_time + time.time())
-        span.set_status(trace.status.Status(StatusCode.OK))
-
-    # Start a span to measure Query Processing Time (QPT)
     with tracer.start_as_current_span("query_processing") as span:
-        span.set_attribute("operation", "query_data")
-        start_time = time.time()
+        storage_info = {
+            "distributedStorageAddress": "http://localhost:9001",
+            "minio_access_key": secrets["access_key"],
+            "minio_secret_key": secrets["secret_key"],
+            "bucket_name": data_location
+        }
 
-        # Replace with actual database fetch operation
-        data = fetch_data_from_sqlite.fetch_data(query)
-        span.set_endtime(start_time + time.time())
-        span.set_status(trace.status.Status(StatusCode.OK))
+        minio_client = Minio(
+            storage_info["distributedStorageAddress"],
+            access_key=storage_info["minio_access_key"],
+            secret_key=storage_info["minio_secret_key"],
+            secure=False
+        )
 
-        return data
+        objects_list = []
+        for obj in minio_client.list_objects(storage_info["bucket_name"]):
+            object_data = minio_fetch({
+                **storage_info,
+                "object_name": obj.object_name
+            })
+            objects_list.append({
+                "object_name": obj.object_name,
+                "data": object_data
+            })
 
-@app.get("/verify-data-integrity")
-async def verify_data_integrity(data_id: int):
-    # This endpoint simulates the process of checking the integrity of a specific data entry by its ID.
+        return {"objects": objects_list}
 
-    # Retrieve the data and its expected hash from the database
-    # (the actual retrieval method would be more complex and likely involve SQL)
-    data, expected_hash = fetch_data_from_sqlite.fetch_data_and_hash(data_id)
+# Add any other endpoints or configurations if needed...
 
-    # Compute the hash of the retrieved data
-    computed_hash = sha256(data.encode('utf-8')).hexdigest()
-
-    # Compare the computed hash with the expected hash to verify integrity
-    if computed_hash == expected_hash:
-        return {"status": "Data integrity verified"}
-    else:
-        raise HTTPException(status_code=400, detail="Data integrity verification failed")
-
-
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
