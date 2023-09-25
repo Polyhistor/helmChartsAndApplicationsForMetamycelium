@@ -17,6 +17,7 @@ opentelemetry-instrumentation-requests = "*"
 opentelemetry-api = "*"
 prometheus-client = "*"
 psutil = "*"
+hvac = "*"
 
 [dev-packages]
 
