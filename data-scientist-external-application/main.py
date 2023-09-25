@@ -98,8 +98,4 @@ async def query_data(data_location: str):
 
         return {"objects": objects_list}
 
-# Add any other endpoints or configurations if needed...
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
