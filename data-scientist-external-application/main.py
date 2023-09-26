@@ -3,22 +3,19 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.trace import SpanKind
 from utilities import kafka_rest_proxy_exporter
 from concurrent.futures import ThreadPoolExecutor
 from minio import Minio
 import threading
-import time
-from hvac import Client
 import logging
-from fastapi.logger import logger
-
-# Initiating logging configuration
-logging.basicConfig(level=logging.INFO)
-logger.setLevel(logging.INFO)
+from hvac import Client
 
 app = FastAPI()
 FastAPIInstrumentor.instrument_app(app)
+
+# Initialize logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Global variables
 SERVICE_ADDRESS = "http://localhost:8010"
@@ -29,8 +26,12 @@ KAFKA_REST_PROXY_URL = "http://localhost/kafka-rest-proxy"
 
 # Setting up the trace provider
 trace.set_tracer_provider(TracerProvider())
-
-kafka_exporter = kafka_rest_proxy_exporter.KafkaRESTProxyExporter(topic_name="telemetry-data", rest_proxy_url=KAFKA_REST_PROXY_URL, service_name=SERVICE_NAME, service_address=SERVICE_ADDRESS)
+kafka_exporter = kafka_rest_proxy_exporter.KafkaRESTProxyExporter(
+    topic_name="telemetry-data",
+    rest_proxy_url=KAFKA_REST_PROXY_URL,
+    service_name=SERVICE_NAME,
+    service_address=SERVICE_ADDRESS
+)
 span_processor = BatchSpanProcessor(kafka_exporter)
 trace.get_tracer_provider().add_span_processor(span_processor)
 
@@ -43,8 +44,6 @@ MINIO_POOL_SIZE = 10
 executor = ThreadPoolExecutor(max_workers=MINIO_POOL_SIZE)
 
 def minio_fetch(storage_info):
-    print(storage_info["distributedStorageAddress"])
-
     with minio_lock:
         minio_client = Minio(
             storage_info["distributedStorageAddress"],
@@ -53,16 +52,21 @@ def minio_fetch(storage_info):
             secure=False
         )
 
+        logger.info(f"Fetching object: {storage_info['object_name']} from bucket: {storage_info['bucket_name']}")
+
         data = minio_client.get_object(storage_info["bucket_name"], storage_info["object_name"])
         chunks = []
+        chunk_count = 0
         for d in data.stream(32*1024):
+            chunk_count += 1
             chunks.append(d)
+            logger.info(f"Fetched chunk {chunk_count} for object: {storage_info['object_name']}")
+        
         data_str = b''.join(chunks).decode('utf-8')
         return data_str
 
 @app.get("/")
 async def welcome():
-    logger.info("Welcome endpoint accessed")
     return "Welcome to the Data Scientist Query Service!"
 
 @app.get("/query-data/{data_location}")
@@ -95,8 +99,8 @@ async def query_data(data_location: str):
         logger.info(f"Connecting to Minio with storage_info: {storage_info}")
         minio_client = Minio(
             storage_info["distributedStorageAddress"],
-            access_key= "minioadmin",
-            secret_key= "minioadmin",
+            access_key="minioadmin",
+            secret_key="minioadmin",
             secure=False
         )
 
@@ -112,4 +116,3 @@ async def query_data(data_location: str):
             })
 
         return {"objects": objects_list}
-
