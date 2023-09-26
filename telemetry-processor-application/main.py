@@ -25,6 +25,8 @@ cpu_utilization_gauge = Gauge('service_cpu_utilization_percentage', 'CPU Utiliza
 memory_utilization_gauge = Gauge('service_memory_utilization_bytes', 'Memory (RAM) Utilization of the Service', labels)
 KAFKA_PROCESSING_TIME = Histogram('kafka_processing_duration_seconds', 'Time taken for processing kafka messages', labels)
 ingestion_latency = Histogram('kafka_ingestion_latency_seconds', 'Time taken from data creation to ingestion in seconds', labels)
+secret_retrieval_latency = Histogram('secret_retrieval_duration_seconds', 'Time taken for retrieving secrets', labels)
+query_processing_time = Histogram('query_processing_duration_seconds', 'Time taken for processing query', labels)
 
 app = FastAPI()
 
@@ -149,6 +151,13 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
                     if kafka_memory_utilization is not None:
                         memory_utilization_gauge.labels(**labels_data).set(kafka_memory_utilization)
 
+                    # Calculate duration from the event for specific event metrics
+                    duration = (value_obj['end_time'] - value_obj['start_time']) / 1e9
+                    if value_obj['name'] == "retrieve_secrets":
+                        secret_retrieval_latency.labels(**labels_data).observe(duration)
+                    elif value_obj['name'].startswith("GET "):
+                        query_processing_time.labels(**labels_data).observe(duration)
+
                     print(f"Consumed record with key {decoded_key} and value {value_obj}")
 
                     end_time = time.time()  # End the timer
@@ -166,6 +175,7 @@ async def consume_kafka_message(background_tasks: BackgroundTasks):
 
     background_tasks.add_task(consume_records)
     return {"status": "Consuming records in the background"}
+
 
 @app.get("/metrics")
 async def get_metrics():
