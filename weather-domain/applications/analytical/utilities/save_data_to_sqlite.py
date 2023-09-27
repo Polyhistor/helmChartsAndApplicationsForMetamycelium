@@ -2,6 +2,8 @@ import sqlite3
 import csv
 from io import StringIO
 
+CHUNK_SIZE = 500  # For example, save 1000 rows at a time
+
 def save_data_to_sqlite(data_str, db_path):
     # Convert string data into a file-like object for csv reader
     csv_file = StringIO(data_str)
@@ -20,11 +22,24 @@ def save_data_to_sqlite(data_str, db_path):
     sql_create_table_command = f"CREATE TABLE IF NOT EXISTS {table_name} ({columns})"
     cursor.execute(sql_create_table_command)
 
-    # Insert rows from csv data into the table
+    # Create a list to store rows in a chunk
+    chunk_data = []
+
     for row in reader:
-        placeholders = ', '.join(['?'] * len(row))
+        chunk_data.append(row)
+        
+        # If the chunk size is reached, save the chunk to the database
+        if len(chunk_data) == CHUNK_SIZE:
+            placeholders = ', '.join(['?'] * len(headers))
+            sql_insert_command = f"INSERT INTO {table_name} VALUES ({placeholders})"
+            cursor.executemany(sql_insert_command, chunk_data)
+            chunk_data = []
+
+    # Save any remaining rows that didn't form a complete chunk
+    if chunk_data:
+        placeholders = ', '.join(['?'] * len(headers))
         sql_insert_command = f"INSERT INTO {table_name} VALUES ({placeholders})"
-        cursor.execute(sql_insert_command, row)
+        cursor.executemany(sql_insert_command, chunk_data)
 
     # Commit the changes and close the connection
     conn.commit()
