@@ -2,8 +2,10 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from minio import Minio
 from xmlrpc.client import ResponseError
 import requests
+import logging
 import json
 import time 
+import io
 import base64
 from utilities import ensure_table_exists, insert_into_db, fetch_data_from_minio, save_data_to_sqlite, subscribe_to_kafka_consumer, create_kafka_consumer, register_metadata_to_data_lichen, fetch_all_weather_data_from_sqlite
 from utilities.kafka_rest_proxy_exporter import KafkaRESTProxyExporter
@@ -15,6 +17,10 @@ from opentelemetry.trace import SpanKind
 
 app = FastAPI()
 FastAPIInstrumentor.instrument_app(app)
+
+# Setting up global logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Global variables
 SERVICE_ADDRESS = "http://localhost:8005"
@@ -210,15 +216,17 @@ async def retrieve_and_save_data():
     except ResponseError as err:
         raise HTTPException(status_code=500, detail=f"An error occurred while fetching the data: {err}")
 
-@app.post("/publish-domains-data")
+@app.get("/publish-domains-data")
 async def publish_domains_data(background_tasks: BackgroundTasks):
 
     tracer = trace.get_tracer(__name__)
 
     with tracer.start_as_current_span("publish-domains-data"):
         
+        logger.info("Fetching all weather domain data from SQLite database...")
+        
         # Fetch all weather domain data from the SQLite database
-        data_to_publish = fetch_all_weather_data_from_sqlite()
+        data_to_publish = fetch_all_weather_data_from_sqlite.fetch_all_weather_data_from_sqlite()
 
         # Prepare MinIO client
         minio_client = Minio(
@@ -231,8 +239,12 @@ async def publish_domains_data(background_tasks: BackgroundTasks):
         # Create the bucket if it doesn't exist
         try:
             if not minio_client.bucket_exists("weather-domain-analytical-data"):
+                logger.info("Bucket doesn't exist. Creating new bucket 'weather-domain-analytical-data'...")
                 minio_client.make_bucket("weather-domain-analytical-data")
+            else:
+                logger.info("Bucket 'weather-domain-analytical-data' exists.")
         except ResponseError as error:
+            logger.error(f"Unable to create bucket. Reason: {error}")
             return {"error": f"Unable to create bucket. Reason: {error}"}
 
         # Upload each data item to MinIO
@@ -240,6 +252,8 @@ async def publish_domains_data(background_tasks: BackgroundTasks):
             try:
                 data_str = json.dumps(record)
                 data_bytes = data_str.encode('utf-8')
+
+                logger.info(f"Uploading record {record[0]} to MinIO...")  # Assuming record[0] is a unique identifier
 
                 minio_client.put_object(
                     "weather-domain-analytical-data",
@@ -250,6 +264,7 @@ async def publish_domains_data(background_tasks: BackgroundTasks):
                 )
 
             except ResponseError as error:
+                logger.error(f"Error uploading record {record[0]} to MinIO. Sending to Kafka error topic. Reason: {error}")
                 # If there's an issue with uploading, send the data to a Kafka error topic
                 kafka_exporter.send(
                     topic_name="weather-domain-data-error",
@@ -258,13 +273,17 @@ async def publish_domains_data(background_tasks: BackgroundTasks):
                 )
 
         # Dispatch the data to weather-domain-data Kafka topic
+        logger.info("Dispatching data to 'weather-domain-data' Kafka topic...")
+        
         kafka_exporter.send(
             topic_name="weather-domain-data",
             key="weather-domain-data",
             value=json.dumps(data_to_publish)
         )
 
+        logger.info("Data published successfully!")
         return {"status": "Data published successfully!"}
+
 
 @app.get("/retrieve-data-from-customer-domain")
 async def retrieve_data_from_customer_domain(background_tasks: BackgroundTasks):
