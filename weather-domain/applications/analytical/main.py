@@ -35,7 +35,7 @@ operational_data_consumer_base_url = None
 customer_domain_data_consumer_base_url = None
 data_discovery_consumer_base_url = None
 
-# Setting up the trace provider
+# Setting up the trace provider base
 trace.set_tracer_provider(TracerProvider())
 
 kafka_exporter = KafkaRESTProxyExporter(topic_name="telemetry-data", rest_proxy_url=KAFKA_REST_PROXY_URL, service_name=SERVICE_NAME, service_address=SERVICE_ADDRESS)
